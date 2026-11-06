@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<!--
+ROLL CALL v6 - multi-academy
+- Anyone can create their own academy and becomes its administrator. Everyone inside that academy is under that admin's control.
+- The same account can be admin of its own academy, teacher in another and student in a third. After sign-in a hub lists every academy with the role held there.
+- People join with an academy code (teacher joins wait for the admin's approval) or by an email invitation from the admin or a teacher.
+- v7: students take a live camera photo (no uploads) stamped with time and location, saved in orgs/{orgId}/photos; admin creates structured classes (class no, subject, teacher, days, timing, room) in orgs/{orgId}/classes. Republish firestore.rules.
+- DISCLAIMER: created with the help of Claude (Anthropic AI). Provided "as is", no warranty; no responsibility for data leakage, loss or misuse. Full text is inside the page (Disclaimer and privacy notice).
+- v6.1: leave an academy; admin role can be handed over (the receiver must accept); a profile per academy (class, roll, academic number are set by the admin).
+- Everything (members, classes, records, rooms, phones) lives under orgs/{orgId}. Publish firestore.rules (shipped with this file) before use.
+--->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Security: limits where scripts, data and frames may come from. If sign-in ever stops working after a Firebase update, remove only this CSP line to test. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://www.gstatic.com https://cdn.jsdelivr.net https://apis.google.com https://www.google.com https://www.recaptcha.net https://accounts.google.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com https://lh3.googleusercontent.com; media-src 'self' blob:; connect-src 'self' https://*.googleapis.com https://www.google.com https://www.recaptcha.net https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com https://www.gstatic.com; frame-src https://www.google.com https://www.recaptcha.net https://*.firebaseapp.com https://accounts.google.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="robots" content="noindex,nofollow">
+<title>Roll Call – Attendance</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#fff;--alt:#f6f7f9;--surface:#fff;--ink:#111827;--muted:#5d6675;--line:#e2e5ea;--brand:#0f5c4d;--tint:#eaf4f1;--on:#fff;--p:#15803d;--l:#b45309;--a:#b91c1c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0;line-height:1.2;letter-spacing:-.01em}h3{margin:26px 0 12px;font-size:1.05rem}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+.hidden{display:none!important}
+.wrap{min-height:100vh;display:grid;place-items:center;padding:20px}
+.card{width:100%;max-width:420px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:32px}
+.card h1{font-size:1.7rem;color:var(--brand)}.card>p{color:var(--muted);margin:6px 0 18px}
+label{display:block;font-weight:600;margin:16px 0 6px;font-size:.92rem}
+input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
+input:focus{border-color:var(--brand)}
+.btn{background:var(--brand);color:var(--on);border:1px solid var(--brand);border-radius:8px;padding:10px 18px;font-weight:600;cursor:pointer}
+.btn:hover{filter:brightness(1.12)}
+.btn.ghost{background:#fff;color:var(--ink);border-color:var(--line)}.btn.ghost:hover{background:var(--alt);filter:none}
+.btn:disabled{opacity:.5}
+.card .btn{width:100%;margin-top:14px}
+.or{text-align:center;color:var(--muted);margin:16px 0 0}
+.err{color:var(--a);min-height:1.4em;margin-top:10px;font-weight:600}
+.note{color:var(--muted);font-size:.9rem}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 24px;background:#fff;border-bottom:1px solid var(--line)}
+header b{color:var(--brand);font-size:1.15rem}
+header span{color:var(--muted);font-size:.88rem;display:block}
+header .btn{padding:7px 14px;background:#fff;color:var(--ink);border-color:var(--line)}
+.tabs{display:flex;gap:4px;max-width:880px;margin:0 auto;padding:0 24px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:12px 14px;cursor:pointer;font-weight:600;color:var(--muted);white-space:nowrap}
+.tabs button[aria-pressed=true]{color:var(--brand);border-bottom-color:var(--brand)}
+main{max-width:880px;margin:0 auto;padding:24px}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.stats4{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:10px;margin:16px 0;overflow:hidden}
+.stat{padding:12px 16px;border-left:1px solid var(--line)}.stat:first-child{border-left:0}
+.stat b{font-size:1.6rem;display:block;line-height:1.1}.stat small{color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:8px}
+.row .name{flex:1 1 200px;font-weight:600}.row small{display:block;font-weight:400;color:var(--muted)}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.seg button{background:transparent;border:0;padding:8px 14px;cursor:pointer;font-weight:600;min-width:44px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed=true]{color:#fff}
+.seg .P[aria-pressed=true]{background:var(--p)}.seg .L[aria-pressed=true]{background:var(--l)}.seg .A[aria-pressed=true]{background:var(--a)}
+.seg.pick{display:flex}.seg.pick button{flex:1}.seg.pick button[aria-pressed=true]{background:var(--brand)}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.sm{background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:.88rem;font-weight:600}.sm:hover{background:var(--alt)}
+.big{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:16px}
+.big>b{font-size:2.4rem;color:var(--brand);line-height:1.1}
+.tag{font-weight:600;padding:2px 10px;border-radius:20px;font-size:.85rem;color:#fff;display:inline-block}
+.tag.Present{background:var(--p)}.tag.Late{background:var(--l)}.tag.Absent{background:var(--a)}
+.empty{color:var(--muted);padding:12px 0}
+.code{font:800 2.8rem ui-monospace,Menlo,monospace;letter-spacing:.12em;text-align:center;color:var(--brand)}
+#qr{display:flex;justify-content:center;margin-bottom:8px}#qr img,#qr canvas{background:#fff;padding:10px;border-radius:10px;border:1px solid var(--line)}
+.center{text-align:center}
+.step{border-left:3px solid var(--line);padding:2px 0 2px 14px;margin:16px 0}
+.step.ok{border-color:var(--p)}.step.on{border-color:var(--brand)}
+.map{height:300px;border-radius:12px;border:1px solid var(--line);overflow:hidden;position:relative;z-index:0}
+#scanner{position:fixed;inset:0;background:#000;z-index:1000;display:flex;flex-direction:column}
+#scanner video{flex:1;width:100%;object-fit:cover;min-height:0}
+.scanbar{padding:16px;background:#000;color:#fff;text-align:center}
+select{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:inherit;color:inherit}
+#picker{position:fixed;inset:0;background:#fff;z-index:1000;display:flex;flex-direction:column}
+#pickmap{flex:1;min-height:0}
+.pickhead{padding:12px 16px;border-bottom:1px solid var(--line)}.pickhead span{display:block;color:var(--muted);font-size:.88rem}
+.pickbar{padding:12px 16px;border-top:1px solid var(--line);display:grid;gap:10px}
+.pickbar .acts .btn{flex:1}
+@media(max-width:520px){.stats4{grid-template-columns:repeat(2,1fr)}.stat:nth-child(3){border-left:0}.stat:nth-child(n+3){border-top:1px solid var(--line)}header{padding-left:16px;padding-right:16px}main{padding:16px}}
+#disc{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1300;display:grid;place-items:center;padding:16px}
+#discbox{background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+#discbox>b{padding:16px 20px;border-bottom:1px solid var(--line);font-size:1.15rem;color:var(--brand)}
+#disctext{padding:4px 20px 12px;overflow:auto;font-size:.92rem}#disctext h4{margin:16px 0 4px;font-size:.98rem}#disctext p,#disctext li{margin:4px 0;color:#2b3340}#disctext ul{padding-left:20px;margin:4px 0}
+#discbox .acts{padding:12px 20px;border-top:1px solid var(--line)}
+.linkb{background:none;border:0;padding:0;color:var(--brand);text-decoration:underline;cursor:pointer;font-size:inherit}
+.accrow{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:.88rem;color:var(--muted)}.accrow input{width:auto;margin-top:3px}
+#foot{max-width:880px;margin:0 auto;padding:6px 24px 24px;text-align:center;color:var(--muted);font-size:.8rem}
+#camera{position:fixed;inset:0;background:#000;z-index:1100;display:flex;flex-direction:column}
+#camvid{flex:1;width:100%;min-height:0;object-fit:cover;transform:scaleX(-1);background:#000}
+#camprev{flex:1;width:100%;min-height:0;object-fit:contain;background:#000}
+.cambar{padding:14px 16px;background:#000;color:#fff;text-align:center;display:grid;gap:10px}
+.cambar .acts{justify-content:center}.cambar .btn.ghost{background:#222;color:#fff;border-color:#444}
+#photoview{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:1200;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;color:#fff;gap:12px}
+#photoview img{max-width:100%;max-height:72vh;border-radius:8px}
+.chk{display:inline-flex;align-items:center;gap:6px;margin:4px 14px 4px 0;font-weight:600}.chk input{width:auto}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}@media(max-width:520px){.fgrid{grid-template-columns:1fr}}
+.who2{display:flex;gap:8px;flex-wrap:wrap}.org-tag{color:#fff;font-weight:600;padding:2px 10px;border-radius:20px;font-size:.82rem;display:inline-block}
+.jc{font:800 2rem ui-monospace,Menlo,monospace;letter-spacing:.18em;text-align:center;color:var(--brand);margin:10px 0}
+</style>
+</head>
+<body>
+<div id="recaptcha"></div>
+
+<section id="login" class="wrap"><div class="card">
+  <h1>Roll Call</h1><p>Sign in with your phone number or Google.</p>
+  <div id="step1">
+    <label for="ph">Mobile number (with country code)</label>
+    <input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210">
+    <button class="btn" id="send">Send OTP</button>
+  </div>
+  <div id="step2" class="hidden">
+    <label for="otp">6-digit code sent by SMS</label>
+    <input id="otp" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+    <button class="btn" id="verify">Verify and sign in</button>
+    <button class="btn ghost" id="back">Use a different number</button>
+  </div>
+  <div class="err" id="err" role="alert"></div>
+  <p class="or">or</p>
+  <button class="btn ghost" id="google">Continue with Google</button>
+  <label class="accrow" style="font-weight:400"><input type="checkbox" id="acc"><span>I have read and accept the <button class="linkb" type="button" data-disc>disclaimer and privacy notice</button>.</span></label>
+</div></section>
+
+<section id="setup" class="wrap hidden"><div class="card">
+  <h1>Welcome</h1><p>Tell us your name. You can then create your own academy, or join other academies as a teacher or student.</p>
+  <label for="nm">Full name</label><input id="nm" type="text" autocomplete="name">
+  <div class="err" id="err2" role="alert"></div>
+  <button class="btn" id="savename">Continue</button>
+</div></section>
+
+<section id="hub" class="hidden">
+  <header><div><b>Roll Call</b><span id="hwho"></span></div><button class="btn" id="hout">Sign out</button></header>
+  <main id="hubmain"></main>
+</section>
+
+<section id="app" class="hidden">
+  <header><div><b>Roll Call</b><span id="who"></span></div><div class="who2"><button class="btn" id="hubb">My academies</button><button class="btn" id="out">Sign out</button></div></header>
+  <div id="tabs" class="tabs hidden"></div>
+  <main id="main"></main>
+</section>
+
+<div id="scanner" class="hidden"><video id="vid" playsinline muted></video>
+  <div class="scanbar"><p>Point the camera at your teacher’s QR code</p><button class="btn" id="scancancel">Cancel</button></div></div>
+
+<div id="picker" class="hidden"><div class="pickhead"><b>Set class location</b><span>Tap the map to place the pin, or drag it. The circle shows the allowed distance.</span></div><div id="pickmap"></div>
+  <div class="pickbar"><input id="pname" type="text" placeholder="Name, for example Room 101" aria-label="Location name"><div class="acts"><button class="btn ghost" id="pgps" type="button">Use my GPS</button><button class="btn" id="psave" type="button">Save location</button><button class="btn ghost" id="pcancel" type="button">Cancel</button></div></div></div>
+
+<div id="foot">Roll Call · <button class="linkb" type="button" data-disc>Disclaimer and privacy notice</button></div>
+
+<div id="disc" class="hidden" role="dialog" aria-modal="true" aria-labelledby="disctitle"><div id="discbox"><b id="disctitle">Disclaimer and privacy notice</b>
+<div id="disctext">
+<p class="note" style="margin-top:12px">Please read this carefully. By signing in or using Roll Call you agree to it. “We” means the person or organisation that publishes this website. “Academy” means the school, coaching centre or institution that uses it, and “admin” means that academy’s administrator.</p>
+<h4>1. Made with AI, provided “as is”</h4>
+<p>This website was created with the help of Claude, an AI assistant made by Anthropic. It has not been independently audited, penetration-tested or certified. It is provided “as is” and “as available”, without any warranty of any kind, including accuracy, reliability, security, fitness for a particular purpose or uninterrupted operation. Anthropic did not host, operate or review this website and is not responsible for it or for the data in it.</p>
+<h4>2. Data security and leakage</h4>
+<p>We take no responsibility for any data leakage, breach, loss, corruption, unauthorised access or misuse, however it happens, including through: wrong or missing Firebase security rules or settings, an exposed or unrestricted API key, software bugs, flaws in third-party services, lost, stolen, shared or rooted devices, shared or compromised accounts, phishing, malicious or careless admins, teachers or students, or exports and downloads (CSV and photo files) that are kept or shared insecurely. No system is completely secure.</p>
+<h4>3. What is collected</h4>
+<ul><li>Name, phone number or email, class, roll number and academic number.</li><li>Your location (coordinates and accuracy) when you check in or end a class.</li><li>A live photo of you with the time and location printed on it.</li><li>Check-in and end-of-class times, attendance status, an identifier of your phone, and warning flags about suspicious readings.</li></ul>
+<p>The academy’s admin and teachers can view, export and delete this data. Photos and location are sensitive personal data. Do not use this website if you do not agree to their collection.</p>
+<h4>4. Consent and legal compliance</h4>
+<p>The academy (through its admin) decides why and how this data is used and is solely responsible for lawful use: giving notice, obtaining consent (including verifiable consent from a parent or guardian for anyone under 18), keeping data only as long as needed, answering access, correction and deletion requests, and following the data protection and privacy laws that apply to it (for example India’s Digital Personal Data Protection Act 2023, or GDPR where relevant). We are not the academy’s data processor or adviser and do not take on those duties.</p>
+<h4>5. Attendance accuracy</h4>
+<p>Attendance results can be wrong. GPS can be inaccurate indoors or faked, cameras and phones can fail, clocks can be wrong, networks can drop, and codes can be shared. Flags and photos are only hints. Attendance records are not a legal or official record. Academies should not rely on them alone for marks, fees, discipline or legal decisions, and should review disputes by hand. We are not responsible for any decision, penalty or loss that results from attendance data.</p>
+<h4>6. Third-party services</h4>
+<p>This website depends on services we do not control, including Google Firebase (sign-in, SMS one-time codes, database), Google reCAPTCHA, OpenStreetMap maps and public script hosts. Their terms and privacy policies apply, and they can change, fail, be blocked or charge fees. SMS codes may be delayed or cost money.</p>
+<h4>7. Data loss and deletion</h4>
+<p>Deleting a day’s data under “End of day” is permanent and cannot be undone. Downloaded files are your responsibility. Keep your own backups. We do not promise any backup or recovery.</p>
+<h4>8. Costs and availability</h4>
+<p>Any usage costs or quota limits of the hosting and Firebase project are borne by whoever runs it. The website may be unavailable, changed or removed at any time without notice.</p>
+<h4>9. Your responsibilities</h4>
+<p>Use only your own account and phone, keep your sign-in private, never photograph or record another person without permission, do not try to cheat, bypass or attack the system, and tell your academy admin at once if you think your account or data has been exposed.</p>
+<h4>10. Limitation of liability</h4>
+<p>To the fullest extent permitted by law, we, our contributors and anyone who helped create this website are not liable for any direct, indirect, incidental, special or consequential loss or damage, including loss of data, privacy, reputation, income, marks or opportunity, arising from the use of or inability to use it. Nothing here removes any right or liability that cannot be excluded by law.</p>
+<h4>11. Not advice, and changes</h4>
+<p>This notice is general information and not legal advice. Academies should have it reviewed by a qualified lawyer and adapt it to their own needs. It may be updated at any time, and continuing to use the website means you accept the current version. For questions about your data, contact your academy’s admin.</p>
+</div>
+<div class="acts"><button class="btn" id="discok" type="button">I accept and continue</button><button class="btn ghost" id="discno" type="button">Decline and sign out</button><button class="btn" id="discclose" type="button">Close</button></div></div></div>
+
+<div id="camera" class="hidden"><video id="camvid" playsinline muted></video><img id="camprev" class="hidden" alt="Photo preview">
+  <div class="cambar"><p id="camnote" style="margin:0">Take a live photo of yourself in the classroom. Photos cannot be uploaded from the gallery.</p>
+  <div class="acts"><button class="btn" id="camshot" type="button">Take photo</button><button class="btn ghost hidden" id="camretake" type="button">Retake</button><button class="btn hidden" id="camuse" type="button">Use this photo</button><button class="btn ghost" id="camcancel" type="button">Cancel</button></div>
+  <div id="camerr" role="alert" style="color:#fca5a5;font-weight:600;min-height:1.2em"></div></div></div>
+<div id="photoview" class="hidden"><img id="pvimg" alt="Student photo"><div id="pvcap" style="text-align:center"></div><button class="btn" id="pvclose" type="button">Close</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ===== STEP 1: PUT YOUR OWN FIREBASE WEB CONFIG HERE (see SETUP.md). Replace every YOUR_... value. Firebase console > Project settings > Your apps > Web app > SDK setup and configuration > Config. ===== */
+const firebaseConfig={
+  apiKey:"YOUR_FIREBASE_API_KEY",
+  authDomain:"YOUR_PROJECT_ID.firebaseapp.com",
+  projectId:"YOUR_PROJECT_ID",
+  storageBucket:"YOUR_PROJECT_ID.firebasestorage.app",
+  messagingSenderId:"YOUR_SENDER_ID",
+  appId:"YOUR_APP_ID"
+};
+if(/YOUR_/.test(JSON.stringify(firebaseConfig))){
+  document.body.innerHTML='<div style="max-width:460px;margin:40px auto;padding:20px;font:16px/1.5 system-ui,sans-serif"><h2>Setup needed</h2><p>Open <b>index.html</b>, find <b>firebaseConfig</b> inside the script, and replace the YOUR_... values with your own Firebase web app settings. See SETUP.md.</p></div>';
+  throw new Error("Firebase config not set");
+}
+const $=i=>document.getElementById(i);
+if(typeof firebase==="undefined"){
+  document.body.innerHTML='<div style="max-width:440px;margin:40px auto;padding:20px;font:16px/1.5 system-ui,sans-serif"><h2>Firebase did not load</h2><p>Open this page from your hosting address with internet access, and check that nothing is blocking gstatic.com.</p></div>';
+  throw new Error("Firebase SDK not loaded");
+}
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth(),db=firebase.firestore();
+const col=n=>db.collection(n);
+const SERVER_TIME=()=>firebase.firestore.FieldValue.serverTimestamp();
+const esc=s=>String(s==null?"":s).replace(/[&<>"'`]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;","`":"&#96;"}[c]));
+/* Clickjacking: do not run inside someone else's frame. (Also send X-Frame-Options / frame-ancestors from your host, see SECURITY.md.) */
+if(window.top!==window.self){document.documentElement.style.display="none";try{window.top.location=window.self.location}catch(e){}}
+const cap=s=>s?s[0].toUpperCase()+s.slice(1):"";
+const byName=(a,b)=>(a.name||"").localeCompare(b.name||"");
+const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const tm=t=>new Date(t).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+const fmt=m=>m<1000?Math.round(m)+" m":(m/1000).toFixed(1)+" km";
+const LOADING='<div class="empty">Loading…</div>';
+/* The QR/code is shown only for this many seconds after the class starts, then hidden until the end-of-class check. Change here. */
+const CHECKIN_SECONDS=15;
+/* The end-of-class code is shown for this many seconds, then it stops working. */
+const EXIT_SECONDS=15;
+const gen=()=>String(crypto.getRandomValues(new Uint32Array(1))[0]%1000000).padStart(6,"0");
+const show=id=>["login","setup","hub","app"].forEach(s=>$(s).classList.toggle("hidden",s!==id));
+const msg=e=>({"auth/invalid-phone-number":"Enter the number with country code, like +91 98765 43210.","auth/invalid-verification-code":"That code is incorrect. Check the SMS and try again.","auth/code-expired":"That code has expired. Request a new one.","auth/too-many-requests":"Too many attempts. Wait a few minutes and try again.","auth/popup-closed-by-user":"Google sign-in was closed before finishing."})[e.code]||e.message;
+
+/* ---------- CSV export ---------- */
+const csvCell=v=>{let s=String(v==null?"":v);if(/^[=@\t\r]/.test(s)||/^[+\-][^\d\s]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'};
+function saveCSV(name,rows){
+  const t="\ufeff"+rows.map(r=>r.map(csvCell).join(",")).join("\r\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([t],{type:"text/csv;charset=utf-8"}));a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+const REC_HEAD=["Date","Class","Student","Roll","Status","Time","Method","Distance from teacher (m)","Checks","End-of-class check","Academic number"];
+const recRow=(r,u)=>[r.date,r.class||"",u?u.name:"(removed)",u?u.roll||"":"",r.status,r.time?new Date(r.time).toLocaleTimeString():"",r.via==="teacher"?"Marked by teacher":"Code scan",r.dist!=null?r.dist:"",r.flag||"",r.exitManual==="Missed"?"Missed (marked by teacher)":(r.exitTime?new Date(r.exitTime).toLocaleTimeString()+(r.exitManual?" (marked by teacher)":""):""),u?u.acno||"":""];
+
+let me=null,user={},org=null,mem=null,role=null,pending=false,profile={},tab="students",selSid=null,live=[],confirmation=null,verifier=null,mine=[];
+const oc=n=>db.collection("orgs").doc(org.id).collection(n);   /* data inside the academy being viewed */
+const mid=(o,u)=>o+"_"+u;
+const ROLE_COL={admin:"var(--brand)",teacher:"var(--l)",student:"var(--p)"};
+const newJoinCode=()=>{const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789",r=crypto.getRandomValues(new Uint32Array(6));return Array.from(r,x=>A[x%A.length]).join("")};
+function stopLive(){live.forEach(f=>{try{f()}catch(e){}});live=[];stopScan();stopCam()}
+/* Photos are made only from the live camera (no file upload) and are accepted only if they look like our own JPEG data. */
+const okImg=s=>typeof s==="string"&&/^data:image\/jpeg;base64,[A-Za-z0-9+\/=]+$/.test(s);
+
+/* ---------- disclaimer: must be accepted before sign-in; always readable from the links ---------- */
+const DISC_V="1";
+const discOk=()=>{try{return localStorage.getItem("rc_disc")===DISC_V}catch(e){return false}};
+const discSave=()=>{try{localStorage.setItem("rc_disc",DISC_V)}catch(e){}};
+function openDisc(gate){$("disc").classList.remove("hidden");$("discok").classList.toggle("hidden",!gate);$("discno").classList.toggle("hidden",!gate);$("discclose").classList.toggle("hidden",!!gate);$("disctext").scrollTop=0}
+document.querySelectorAll("[data-disc]").forEach(b=>b.onclick=()=>openDisc(false));
+$("discclose").onclick=()=>$("disc").classList.add("hidden");
+$("discok").onclick=()=>{discSave();$("acc").checked=true;$("disc").classList.add("hidden")};
+$("discno").onclick=()=>{$("disc").classList.add("hidden");$("acc").checked=false;try{localStorage.removeItem("rc_disc")}catch(e){}auth.signOut()};
+$("acc").checked=discOk();
+$("acc").onchange=()=>{if($("acc").checked)discSave();else try{localStorage.removeItem("rc_disc")}catch(e){}};
+const needAcc=()=>{if($("acc").checked)return false;$("err").textContent="Please tick the box to accept the disclaimer first.";return true};
+
+/* ---------- sign in ---------- */
+$("send").onclick=()=>{
+  if(needAcc())return;
+  const n=$("ph").value.replace(/[\s-]/g,"");$("err").textContent="";
+  if(!/^\+\d{8,15}$/.test(n)){$("err").textContent="Enter the number with country code, like +91 98765 43210.";return}
+  if(!verifier)verifier=new firebase.auth.RecaptchaVerifier("recaptcha",{size:"invisible"});
+  $("send").disabled=true;
+  auth.signInWithPhoneNumber(n,verifier).then(c=>{confirmation=c;$("step1").classList.add("hidden");$("step2").classList.remove("hidden");$("otp").focus()})
+   .catch(e=>{$("err").textContent=msg(e);try{verifier.clear()}catch(x){}verifier=null})
+   .then(()=>{$("send").disabled=false});
+};
+$("verify").onclick=()=>{$("err").textContent="";confirmation.confirm($("otp").value.trim()).catch(e=>{$("err").textContent=msg(e)})};
+$("back").onclick=()=>{$("step2").classList.add("hidden");$("step1").classList.remove("hidden");$("otp").value="";$("err").textContent=""};
+$("google").onclick=()=>{$("err").textContent="";if(needAcc())return;auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e=>{$("err").textContent=msg(e)})};
+$("out").onclick=()=>auth.signOut();
+
+/* An invited email that signs in with Google joins each inviting academy automatically. */
+async function applyInvites(u){
+  const em=(u.email||"").toLowerCase();
+  if(!em||!u.emailVerified)return;
+  try{
+    const [iv,ms]=await Promise.all([col("invites").where("email","==",em).get(),col("memberships").where("uid","==",u.uid).get()]);
+    const have=new Set();ms.forEach(d=>have.add(d.data().orgId));
+    for(const d of iv.docs){
+      const v=d.data();if(have.has(v.orgId))continue;
+      await col("memberships").doc(mid(v.orgId,u.uid)).set({orgId:v.orgId,orgName:v.orgName,uid:u.uid,role:v.role,status:"active",name:user.name,contact:u.email||"",class:v.class||"",roll:"",at:Date.now()}).catch(()=>{});
+    }
+  }catch(e){}
+}
+async function boot(u){
+  stopLive();
+  if(!u){me=null;org=null;mem=null;user={};show("login");return}
+  me=u;
+  try{
+    const p=await col("users").doc(u.uid).get();
+    if(!p.exists){$("nm").value=u.displayName||"";show("setup");return}
+    user=p.data();
+    if(!discOk())openDisc(true);   /* someone already signed in who has not accepted this version yet */
+    await applyInvites(u);
+    hub();
+  }catch(e){alert("Could not load: "+e.message)}
+}
+auth.onAuthStateChanged(boot);
+/* Idle sign-out: on shared or lost devices. Never fires while a class screen with live updates is open. */
+const IDLE_MINUTES=30;let idleT=null;
+function idleReset(){clearTimeout(idleT);if(!auth.currentUser)return;idleT=setTimeout(()=>{if(auth.currentUser&&live.length===0)auth.signOut();else idleReset()},IDLE_MINUTES*60000)}
+["pointerdown","keydown","touchstart","scroll"].forEach(ev=>window.addEventListener(ev,idleReset,{passive:true}));
+auth.onAuthStateChanged(idleReset);
+
+/* ---------- first sign-in: just a name ---------- */
+$("savename").onclick=async()=>{
+  const n=$("nm").value.trim();if(!n){$("err2").textContent="Enter your name.";return}
+  try{await col("users").doc(me.uid).set({name:n,contact:me.phoneNumber||me.email||""});boot(me)}
+  catch(e){$("err2").textContent=e.message}
+};
+
+/* ---------- hub: every academy this account belongs to, with the role held there ---------- */
+async function hub(){
+  stopLive();org=null;mem=null;role=null;pending=false;selSid=null;show("hub");
+  $("hwho").textContent=user.name;$("hubmain").innerHTML=LOADING;
+  try{
+    const [ms,ofs]=await Promise.all([col("memberships").where("uid","==",me.uid).get(),col("adminOffers").where("to","==",me.uid).get().catch(()=>null)]);
+    const offers=[];if(ofs)ofs.forEach(d=>offers.push(d.data()));
+    mine=[];ms.forEach(d=>mine.push(d.data()));mine.sort((a,b)=>(a.orgName||"").localeCompare(b.orgName||""));
+    const groups=[["admin","Academies you run (you are the admin)"],["teacher","Academies where you are a teacher"],["student","Academies where you are a student"]];
+    let h='<h2 style="margin-bottom:4px">Your academies</h2><p class="note" style="margin:0 0 6px">Pick where you want to work. The same account can be admin in one academy, teacher in another and student in a third.</p>';
+    h+=offers.map(o=>'<div class="big" style="background:var(--tint)"><b style="font-size:1.1rem">Admin offer</b><p class="note" style="margin:6px 0 0">'+esc(o.fromName)+' wants to make you the <b>admin</b> of “'+esc(o.orgName)+'”. If you accept, you control everyone in that academy and '+esc(o.fromName)+' becomes a teacher there.</p><div class="acts" style="margin-top:12px"><button class="sm" data-oa="'+esc(o.orgId)+'">Accept</button><button class="sm" data-od="'+esc(o.orgId)+'">Decline</button></div></div>').join("");
+    groups.forEach(g=>{
+      const l=mine.filter(m=>m.role===g[0]);if(!l.length)return;
+      h+='<h3>'+g[1]+' ('+l.length+')</h3>'+l.map(m=>'<div class="row"><div class="name">'+esc(m.orgName)+'<small>'+(m.status==="pending"?"Waiting for the admin to approve you":cap(m.role)+(m.class?", class "+esc(m.class):""))+'</small></div><span class="org-tag" style="background:'+(m.status==="pending"?"var(--muted)":ROLE_COL[m.role])+'">'+(m.status==="pending"?"Pending":cap(m.role))+'</span><button class="sm" data-o="'+esc(m.orgId)+'">Open</button></div>').join("");
+    });
+    if(!mine.length)h+='<div class="empty">You are not in any academy yet. Create your own, or join one with its code.</div>';
+    h+='<h3>Create your own academy</h3><div class="big"><p class="note" style="margin:0">You become its administrator. You control every teacher and student in it. Nobody from other academies can see it.</p>'
+     +'<label for="cn">Academy name</label><input id="cn" type="text" placeholder="for example Sunrise Coaching">'
+     +'<button class="btn" id="mk" style="margin-top:14px">Create academy</button><div class="err" id="cerr" role="alert"></div></div>'
+     +'<h3>Join an academy</h3><div class="big"><p class="note" style="margin:0">Ask the academy’s admin for its 6-character code. The admin must approve your request before you can enter.</p>'
+     +'<label for="jcode">Academy code</label><input id="jcode" type="text" maxlength="6" autocapitalize="characters" autocomplete="off" placeholder="ABC234">'
+     +'<label for="jrole">I am joining as a</label><select id="jrole"><option value="student">Student</option><option value="teacher">Teacher</option></select>'
+     +'<label for="jcls">Class or section (optional)</label><input id="jcls" type="text" placeholder="for example 10-A">'
+     +'<div id="jrollbox"><label for="jroll">Roll number (optional)</label><input id="jroll" type="text"></div>'
+     +'<button class="btn" id="jn" style="margin-top:14px">Join</button><div class="err" id="jerr" role="alert"></div></div>';
+    $("hubmain").innerHTML=h;
+    $("hubmain").querySelectorAll("[data-o]").forEach(b=>b.onclick=()=>openOrg(b.dataset.o));
+    $("hubmain").querySelectorAll("[data-oa]").forEach(b=>b.onclick=async()=>{
+      const o=offers.find(x=>x.orgId===b.dataset.oa);if(!o)return;
+      if(!confirm("Become the admin of “"+o.orgName+"”? You will control everyone in it."))return;
+      try{
+        const bt=db.batch();
+        bt.update(col("memberships").doc(mid(o.orgId,me.uid)),{role:"admin"});
+        bt.update(col("memberships").doc(mid(o.orgId,o.from)),{role:"teacher"});
+        bt.update(db.collection("orgs").doc(o.orgId),{owner:me.uid});
+        bt.delete(col("adminOffers").doc(o.orgId));
+        await bt.commit();hub();
+      }catch(e){alert("Could not accept: "+(e.code==="permission-denied"?"the offer may have been cancelled, or the latest rules are not published.":e.message))}
+    });
+    $("hubmain").querySelectorAll("[data-od]").forEach(b=>b.onclick=async()=>{
+      try{await col("adminOffers").doc(b.dataset.od).delete();hub()}catch(e){alert("Could not decline: "+e.message)}
+    });
+    $("jrole").onchange=()=>$("jrollbox").classList.toggle("hidden",$("jrole").value==="teacher");
+
+    $("mk").onclick=async()=>{
+      const n=$("cn").value.trim(),er=$("cerr");er.textContent="";
+      if(!n){er.textContent="Give your academy a name.";return}
+      $("mk").disabled=true;
+      try{
+        const ref=db.collection("orgs").doc(),jc=newJoinCode(),bt=db.batch();
+        bt.set(ref,{name:n,owner:me.uid,joinCode:jc,at:Date.now()});
+        bt.set(col("joinCodes").doc(jc),{orgId:ref.id,orgName:n});
+        bt.set(col("memberships").doc(mid(ref.id,me.uid)),{orgId:ref.id,orgName:n,uid:me.uid,role:"admin",status:"active",name:user.name,contact:user.contact||"",class:"",roll:"",at:Date.now()});
+        await bt.commit();
+        const m=await col("memberships").doc(mid(ref.id,me.uid)).get();mine.push(m.data());openOrg(ref.id);
+      }catch(e){er.textContent=e.code==="permission-denied"?"Could not create it. Publish the latest firestore.rules, or try again.":e.message;$("mk").disabled=false}
+    };
+    $("jn").onclick=async()=>{
+      const code=$("jcode").value.trim().toUpperCase(),er=$("jerr"),r=$("jrole").value;er.textContent="";
+      if(code.length!==6){er.textContent="Enter the 6-character academy code.";return}
+      $("jn").disabled=true;
+      try{
+        const c=await col("joinCodes").doc(code).get();
+        if(!c.exists)throw new Error("No academy has that code. Check it with your admin.");
+        const o=c.data(),have=mine.find(m=>m.orgId===o.orgId);
+        if(have)throw new Error("You are already in “"+o.orgName+"” as "+have.role+(have.status==="pending"?" (waiting for approval)":"")+".");
+        await col("memberships").doc(mid(o.orgId,me.uid)).set({orgId:o.orgId,orgName:o.orgName,uid:me.uid,role:r,status:"pending",jc:code,name:user.name,contact:user.contact||"",class:$("jcls").value.trim(),roll:r==="student"?$("jroll").value.trim():"",at:Date.now()});
+        hub();
+      }catch(e){er.textContent=e.code==="permission-denied"?"The academy did not accept the join. Check the code, or the latest rules are not published.":e.message;$("jn").disabled=false}
+    };
+  }catch(e){$("hubmain").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+$("hout").onclick=()=>auth.signOut();
+$("hubb").onclick=hub;
+
+function applyMem(m){
+  mem=m;role=m.role;pending=m.status==="pending";
+  profile={name:m.name||user.name,class:m.class||"",roll:m.roll||"",acno:m.acno||"",contact:m.contact||""};
+}
+function openOrg(orgId){
+  const m=mine.find(x=>x.orgId===orgId);if(!m)return hub();
+  org={id:m.orgId,name:m.orgName};applyMem(m);
+  tab="students";selSid=null;start();
+}
+
+/* ---------- shell: header and tabs for the academy being viewed ---------- */
+function start(){
+  stopLive();show("app");
+  $("who").textContent=org.name+" · "+profile.name+" ("+cap(role)+(pending?", pending":"")+")";
+  const tabs=$("tabs");
+  if(pending){
+    tabs.classList.add("hidden");
+    $("main").innerHTML='<div class="big"><b style="font-size:1.3rem">Waiting for approval</b><p class="note" style="margin:8px 0 0">The admin of “'+esc(org.name)+'” needs to approve your request. Tap the button below to check again.</p><button class="btn ghost" id="refresh" style="margin-top:14px">Check again</button><button class="btn ghost" id="cancelreq" style="margin-top:8px">Cancel my request</button></div>';
+    $("refresh").onclick=async()=>{try{const m=await col("memberships").doc(mid(org.id,me.uid)).get();mine=mine.filter(x=>x.orgId!==org.id).concat(m.exists?[m.data()]:[]);m.exists?openOrg(org.id):hub()}catch(e){alert(e.message)}};
+    $("cancelreq").onclick=async()=>{if(!confirm("Cancel your request to join “"+org.name+"”?"))return;try{await col("memberships").doc(mid(org.id,me.uid)).delete();hub()}catch(e){alert(e.message)}};
+    return;
+  }
+  const A=role==="admin",S=role==="student";
+  const list=A?[["students","Students"],["teachers","Teachers"],["invite","Roles by email"],["classes","Classes"],["class","Run a class"],["endday","End of day"],["academy","Academy"],["profile","Profile"]]
+    :S?[["home","Attendance"],["profile","Profile"]]
+    :[["class","Run a class"],["invite","Add students"],["profile","Profile"]];
+  if(!list.some(x=>x[0]===tab))tab=list[0][0];
+  tabs.classList.remove("hidden");
+  tabs.innerHTML=list.map(x=>'<button data-t="'+x[0]+'" aria-pressed="'+(x[0]===tab)+'">'+x[1]+'</button>').join("");
+  tabs.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;start()});
+  if(tab==="profile")profileView();
+  else if(S)studentView();
+  else tab==="class"?classView():tab==="classes"?classesView():tab==="invite"?inviteView():tab==="academy"?academyView():tab==="endday"?endDayView():adminView(tab);
+  if(A){
+    oc("sessions").where("date","<",today()).get().then(q=>{const n=new Set();q.forEach(d=>n.add(d.data().date));const b=tabs.querySelector('[data-t="endday"]');if(b&&n.size)b.textContent="End of day ("+n.size+")"}).catch(()=>{});
+    col("memberships").where("orgId","==",org.id).where("status","==","pending").get().then(q=>{const c={student:0,teacher:0};q.forEach(d=>{const r=d.data().role;if(c[r]!=null)c[r]++});[["students","Students","student"],["teachers","Teachers","teacher"]].forEach(x=>{const b=tabs.querySelector('[data-t="'+x[0]+'"]');if(b&&c[x[2]])b.textContent=x[1]+" ("+c[x[2]]+" waiting)"})}).catch(()=>{});
+  }
+}
+
+/* ---------- my profile in this academy (class, roll and academic number are set by the admin) ---------- */
+async function profileView(){
+  stopLive();$("main").innerHTML=LOADING;
+  try{
+    const d=await col("memberships").doc(mid(org.id,me.uid)).get();
+    if(!d.exists){alert("You are no longer in this academy.");return hub()}
+    const m=d.data();mine=mine.filter(x=>x.orgId!==org.id).concat([m]);applyMem(m);
+    const A=role==="admin",S=role==="student";
+    const f=(k,v)=>'<div class="row"><div class="name"><small>'+k+'</small>'+esc(v||"Not set")+'</div></div>';
+    $("main").innerHTML='<h3 style="margin-top:0">My profile in “'+esc(org.name)+'”</h3>'
+     +f("Role",cap(role))+f("Name",profile.name)+f("Contact",profile.contact)
+     +f(S?"Class or section":"Class or section you teach",profile.class)+(S?f("Roll number",profile.roll):"")+f("Academic number",profile.acno)
+     +'<p class="note">'+(A?"You are the admin, so you can edit your own profile.":"Your class, roll number and academic number are set by the admin of this academy. You can change your name.")+'</p>'
+     +'<button class="btn ghost" id="pedit" style="max-width:240px">Edit profile</button>'
+     +'<h3>Leave this academy</h3>'
+     +(A?'<p class="note">You are the admin, so you cannot leave yet. First give the admin role to someone in the <b>Academy</b> tab. They must accept. Then you become a teacher and can leave.</p>'
+        :'<p class="note">You will no longer be in “'+esc(org.name)+'”. Your name and past attendance stay with the academy until its admin deletes them. You can ask to join again later with the academy code.</p><button class="btn ghost" id="leave" style="max-width:240px;color:var(--a)">Leave academy</button><div class="err" id="lerr" role="alert"></div>');
+    $("pedit").onclick=async()=>{
+      try{
+        const n=prompt("Full name",profile.name);if(n===null)return;
+        const upd={name:n.trim()||profile.name};
+        if(A){
+          const c=prompt("Class or section (optional)",profile.class);if(c===null)return;upd.class=c.trim();
+          const a=prompt("Academic number (optional)",profile.acno);if(a===null)return;upd.acno=a.trim();
+        }
+        await col("memberships").doc(mid(org.id,me.uid)).update(upd);
+        Object.assign(m,upd);applyMem(m);start();
+      }catch(e){alert("Could not save: "+e.message)}
+    };
+    if($("leave"))$("leave").onclick=async()=>{
+      if(!confirm("Leave “"+org.name+"”?"))return;
+      try{
+        if(role==="teacher"){
+          const act=await oc("sessions").where("teacher","==",me.uid).where("active","==",true).get();
+          if(!act.empty){$("lerr").textContent="You have a class running. End it first, then leave.";return}
+        }
+        await col("memberships").doc(mid(org.id,me.uid)).delete();
+        mine=mine.filter(x=>x.orgId!==org.id);hub();
+      }catch(e){$("lerr").textContent=e.message}
+    };
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- admin: the academy code and handing over the admin role ---------- */
+async function academyView(){
+  stopLive();$("main").innerHTML=LOADING;
+  try{
+    const [o,ms,of]=await Promise.all([db.collection("orgs").doc(org.id).get(),col("memberships").where("orgId","==",org.id).get(),col("adminOffers").doc(org.id).get()]);
+    const d=o.data(),offer=of.exists?of.data():null,cand=[];
+    ms.forEach(x=>{const u=x.data();if(u.uid!==me.uid&&u.status==="active"&&(u.role==="teacher"||u.role==="student"))cand.push(u)});cand.sort(byName);
+    $("main").innerHTML='<div class="big"><b style="font-size:1.3rem">'+esc(org.name)+'</b><p class="note" style="margin:8px 0 0">You are the administrator of this academy. Every teacher and student who joins is under your control, and only you can approve people.</p>'
+     +'<h3>Academy code</h3><div class="jc">'+esc(d.joinCode)+'</div><p class="note" style="margin:0">Give this code to people. They enter it under “Join an academy” after signing in. You must approve every request.</p>'
+     +'<div class="acts" style="margin-top:12px"><button class="sm" id="newcode">Make a new code</button></div><div class="err" id="aerr" role="alert"></div></div>'
+     +'<div class="big"><b style="font-size:1.1rem">Give the admin role to someone</b><p class="note" style="margin:8px 0 0">This is separate from the academy code. The person must be a member of this academy and must <b>accept</b> the offer. When they accept, they become the admin and you become a teacher. After that you can leave the academy from your Profile tab.</p>'
+     +(offer?'<div class="row" style="margin-top:12px;background:var(--tint)"><div class="name">Offer sent to '+esc(offer.toName)+'<small>Waiting for them to accept. They see it when they sign in.</small></div><button class="sm" id="canoffer">Cancel offer</button></div>'
+       :(cand.length?'<label for="ato">Choose a member</label><select id="ato">'+cand.map(u=>'<option value="'+esc(u.uid)+'">'+esc(u.name)+' ('+u.role+(u.class?", "+esc(u.class):"")+')</option>').join("")+'</select><button class="btn" id="offer" style="margin-top:14px">Send admin offer</button>'
+         :'<div class="empty">Nobody else is in this academy yet.</div>'))
+     +'<div class="err" id="oerr" role="alert"></div></div>';
+    $("newcode").onclick=async()=>{
+      if(!confirm("Make a new code? The old code stops working. People already in the academy are not affected."))return;
+      try{
+        const jc=newJoinCode(),bt=db.batch();
+        bt.delete(col("joinCodes").doc(d.joinCode));
+        bt.set(col("joinCodes").doc(jc),{orgId:org.id,orgName:org.name});
+        bt.update(db.collection("orgs").doc(org.id),{joinCode:jc});
+        await bt.commit();academyView();
+      }catch(e){$("aerr").textContent=e.message}
+    };
+    if($("offer"))$("offer").onclick=async()=>{
+      const uid=$("ato").value,u=cand.find(x=>x.uid===uid);if(!u)return;
+      if(!confirm("Offer the admin role of “"+org.name+"” to "+u.name+"? Nothing changes until they accept."))return;
+      try{await col("adminOffers").doc(org.id).set({orgId:org.id,orgName:org.name,from:me.uid,fromName:profile.name,to:uid,toName:u.name,at:Date.now()});academyView()}
+      catch(e){$("oerr").textContent=e.code==="permission-denied"?"Could not send. Publish the latest firestore.rules.":e.message}
+    };
+    if($("canoffer"))$("canoffer").onclick=async()=>{try{await col("adminOffers").doc(org.id).delete();academyView()}catch(e){$("oerr").textContent=e.message}};
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- location helpers and anti-cheating checks ---------- */
+function dist(a,b,c,d){const R=6371000,t=Math.PI/180,x=(c-a)*t,y=(d-b)*t,h=Math.sin(x/2)**2+Math.cos(a*t)*Math.cos(c*t)*Math.sin(y/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+function here(onP){return new Promise((ok,no)=>{
+  if(!navigator.geolocation)return no(new Error("This browser cannot share location."));
+  let best=null,id,done=false,timer,quick;const t0=Date.now();
+  const fin=()=>{if(done)return;done=true;clearTimeout(timer);clearTimeout(quick);navigator.geolocation.clearWatch(id);best?ok(best):no(new Error("Could not get your location. Go near a window and try again."))};
+  timer=setTimeout(fin,15000);
+  /* Good enough after 4 s (within 30 m) so the teacher is not kept waiting; the stricter 100 m limit is checked by the caller. */
+  quick=setTimeout(()=>{if(best&&best.coords.accuracy<=30)fin()},4000);
+  id=navigator.geolocation.watchPosition(p=>{if(!best||p.coords.accuracy<best.coords.accuracy)best=p;if(onP)onP(best.coords.accuracy);if(best.coords.accuracy<=10||(Date.now()-t0>4000&&best.coords.accuracy<=30))fin()},
+   e=>{if(done)return;if(e.code===1){done=true;clearTimeout(timer);navigator.geolocation.clearWatch(id);no(new Error("Location permission was denied. Allow location for this site in your browser settings, then try again."))}},
+   {enableHighAccuracy:true,maximumAge:0,timeout:15000})})}
+const prog=el=>a=>{el.style.color="var(--muted)";el.textContent="Improving accuracy… now within "+Math.round(a)+" m"};
+function deviceId(){
+  try{let d=localStorage.getItem("rc_dev");if(!d){d=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random());localStorage.setItem("rc_dev",d)}return d}
+  catch(e){return"unknown"}
+}
+/* Flags are shown to the teacher; they do not block the student, except poor accuracy. */
+function locationFlags(q){
+  const f=[],c=q.coords;
+  if(c.accuracy<1)f.push("unusually exact GPS");
+  if(Math.abs(Date.now()-q.timestamp)>60000)f.push("old GPS reading");
+  try{
+    const l=JSON.parse(localStorage.getItem("rc_last")||"null"),now=Date.now();
+    if(l){const m=dist(l.lat,l.lng,c.latitude,c.longitude),sec=Math.max(1,(now-l.t)/1000);if(m>2000&&m/sec>60)f.push("location jumped")}
+    localStorage.setItem("rc_last",JSON.stringify({lat:c.latitude,lng:c.longitude,t:now}));
+  }catch(e){}
+  return f.join("; ");
+}
+async function checkLocation(el,s){
+  const q=await here(prog(el));
+  if(q.coords.accuracy>100)throw new Error("Your location is only accurate to "+Math.round(q.coords.accuracy)+" m. Go near a window, turn on high-accuracy GPS, and try again.");
+  return{q,d:dist(s.lat,s.lng,q.coords.latitude,q.coords.longitude),flag:locationFlags(q)};
+}
+function drawMap(id,pins,s){
+  const el=$(id);
+  if(typeof L==="undefined"){el.innerHTML='<div class="empty" style="padding:20px">The map could not load.</div>';return}
+  try{
+    const m=L.map(id).setView([s.lat,s.lng],18);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(m);
+    L.circle([s.lat,s.lng],{radius:s.radius,color:"#0f5c4d",weight:2,fillOpacity:.08}).addTo(m);
+    let b=L.latLng(s.lat,s.lng).toBounds(s.radius*2);
+    pins.concat([{lat:s.lat,lng:s.lng,acc:s.accuracy,color:"#2563eb",label:"Classroom location"}]).forEach(p=>{
+      if(p.acc)L.circle([p.lat,p.lng],{radius:p.acc,color:p.color,weight:1,fillOpacity:.12}).addTo(m);
+      const d=document.createElement("div");d.textContent=p.label;
+      L.circleMarker([p.lat,p.lng],{radius:9,color:"#fff",weight:2,fillColor:p.color,fillOpacity:1}).bindPopup(d).addTo(m);
+      b=b.extend(L.latLng(p.lat,p.lng).toBounds(Math.max(p.acc||10,10)*2))});
+    m.fitBounds(b.pad(.2),{maxZoom:19});
+  }catch(e){el.innerHTML='<div class="empty" style="padding:20px">The map could not be drawn: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- roles by email (admin: teachers and students; teacher: students only) ---------- */
+async function inviteView(){
+  stopLive();$("main").innerHTML=LOADING;
+  try{
+    const A=role==="admin";
+    const q=col("invites").where("orgId","==",org.id);
+    const [iv,ms]=await Promise.all([A?q.get():q.where("by","==",me.uid).get(),col("memberships").where("orgId","==",org.id).get()]);
+    const joined={};ms.forEach(d=>{const c=(d.data().contact||"").toLowerCase();if(c)joined[c]=d.data().uid});
+    const list=[];iv.forEach(d=>list.push({id:d.id,...d.data()}));list.sort((a,b)=>(b.at||0)-(a.at||0));
+    $("main").innerHTML='<div class="big"><b style="font-size:1.3rem">'+(A?"Give a role by email":"Add students by email")+'</b>'
+     +'<p class="note">The person must sign in with <b>Google</b> using this email. They then appear in “'+esc(org.name)+'” with this role automatically.'+(A?'':' You can add students only.')+'</p>'
+     +'<label for="ie">Email address</label><input id="ie" type="email" inputmode="email" autocomplete="off" placeholder="name@example.com">'
+     +(A?'<label for="ir">Role</label><select id="ir"><option value="student">Student</option><option value="teacher">Teacher</option></select>':'')
+     +'<label for="ic">Class or section (optional)</label><input id="ic" type="text" placeholder="for example 10-A">'
+     +'<button class="btn" id="iadd" style="margin-top:14px">Add</button><div class="err" id="ierr" role="alert"></div></div>'
+     +'<h3>'+(A?"All invited emails":"Students you added")+' ('+list.length+')</h3>'
+     +(list.map(x=>'<div class="row"><div class="name">'+esc(x.email||x.id)+'<small>'+cap(x.role)+(x.class?", class "+esc(x.class):"")+' · '+(joined[x.email]?"Joined":"Waiting for sign-in")+'</small></div><button class="sm" data-d="'+esc(x.id)+'">Remove</button></div>').join("")||'<div class="empty">Nobody added yet.</div>');
+    $("main").querySelectorAll("[data-d]").forEach(b=>b.onclick=async()=>{
+      if(!confirm("Remove this invitation? It does not remove the person if they already joined."))return;
+      try{await col("invites").doc(b.dataset.d).delete();inviteView()}catch(e){alert("Could not remove: "+e.message)}
+    });
+    $("iadd").onclick=async()=>{
+      const em=$("ie").value.trim().toLowerCase(),rl=A?$("ir").value:"student",er=$("ierr");er.style.color="var(--a)";er.textContent="";
+      if(!/^[^@\s\/]+@[^@\s\/]+\.[^@\s\/]+$/.test(em)){er.textContent="Enter a valid email address.";return}
+      try{
+        await col("invites").doc(mid(org.id,em)).set({orgId:org.id,orgName:org.name,email:em,role:rl,class:$("ic").value.trim(),by:me.uid,at:Date.now()});
+        const uid=joined[em];   /* already in this academy: update the role now */
+        if(A&&uid&&uid!==me.uid)await col("memberships").doc(mid(org.id,uid)).update({role:rl,status:"active"});
+        inviteView();
+      }catch(e){er.textContent=e.code==="permission-denied"?"Could not add. The latest Firestore rules may not be published.":e.message}
+    };
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- admin: classes (structured class records: class no, subject, teacher, days, timing, room) ---------- */
+const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const classTiming=c=>(c.start?c.start+"–"+(c.end||""):"");
+async function classesView(){
+  stopLive();$("main").innerHTML=LOADING;
+  try{
+    const [cs,ms,ss,rc]=await Promise.all([oc("classes").get(),col("memberships").where("orgId","==",org.id).get(),oc("sessions").get(),oc("records").get()]);
+    const list=[];cs.forEach(d=>list.push({id:d.id,...d.data()}));
+    list.sort((a,b)=>(a.name||"").localeCompare(b.name||"",undefined,{numeric:true}));
+    const teachers=[],byId={},studs=[];
+    ms.forEach(d=>{const u=d.data();byId[u.uid]=u;if(u.status!=="pending"){if(u.role==="teacher"||u.role==="admin")teachers.push(u);if(u.role==="student")studs.push(u)}});
+    teachers.sort(byName);
+    let editId=null;
+    $("main").innerHTML='<div class="big"><b style="font-size:1.3rem" id="ftitle">Create a class</b>'
+     +'<p class="note" style="margin:8px 0 0">Each class is saved as a structured record. Teachers pick it when they start a class, so every attendance record carries the class number, subject, timing and room. Students see the timetable for their class.</p>'
+     +'<div class="fgrid"><div><label for="cname">Class no. or section</label><input id="cname" type="text" placeholder="for example 10-A"></div>'
+     +'<div><label for="csub">Subject</label><input id="csub" type="text" placeholder="for example Mathematics"></div>'
+     +'<div><label for="ctea">Teacher</label><select id="ctea"><option value="">Not assigned</option>'+teachers.map(u=>'<option value="'+esc(u.uid)+'">'+esc(u.name)+(u.role==="admin"?" (admin)":"")+'</option>').join("")+'</select></div>'
+     +'<div><label for="croom">Room</label><input id="croom" type="text" placeholder="for example Room 101"></div>'
+     +'<div><label for="cstart">Start time</label><input id="cstart" type="time"></div>'
+     +'<div><label for="cend">End time</label><input id="cend" type="time"></div></div>'
+     +'<label>Days</label><div>'+DAYS.map(d=>'<label class="chk"><input type="checkbox" data-day="'+d+'">'+d+'</label>').join("")+'</div>'
+     +'<div class="acts" style="margin-top:14px"><button class="btn" id="csave" type="button">Save class</button><button class="btn ghost hidden" id="ccancel" type="button">Cancel edit</button></div><div class="err" id="cerr2" role="alert"></div></div>'
+     +'<div class="bar"><h3 style="margin:0">Classes ('+list.length+')</h3><div class="acts"><button class="sm" id="xt">Export timetable (CSV)</button><button class="sm" id="xa">Export structured attendance (CSV)</button></div></div>'
+     +(list.map(c=>{const n=studs.filter(u=>u.class===c.name).length;
+        return '<div class="row"><div class="name">'+esc(c.name)+(c.subject?' · '+esc(c.subject):'')+'<small>'+esc((c.days||[]).join(", ")||"No days set")+(classTiming(c)?' · '+esc(classTiming(c)):'')+(c.room?' · '+esc(c.room):'')+'</small><small>Teacher: '+esc(c.teacherName||"not assigned")+' · '+n+' student(s) with this class in their profile</small></div><div class="acts"><button class="sm" data-e="'+c.id+'">Edit</button><button class="sm" data-x="'+c.id+'">Delete</button></div></div>'}).join("")||'<div class="empty">No classes yet. Create the first one above.</div>')
+     +'<p class="note">The class no. should match the “Class or section” set in each student’s profile (Students tab, Edit), so the right students appear for that class.</p>';
+    const reset=()=>{editId=null;$("ftitle").textContent="Create a class";$("ccancel").classList.add("hidden");["cname","csub","croom","cstart","cend"].forEach(i=>$(i).value="");$("ctea").value="";$("main").querySelectorAll("[data-day]").forEach(b=>b.checked=false)};
+    $("ccancel").onclick=reset;
+    $("main").querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{
+      const c=list.find(x=>x.id===b.dataset.e);if(!c)return;
+      editId=c.id;$("ftitle").textContent="Edit class "+c.name;$("ccancel").classList.remove("hidden");
+      $("cname").value=c.name||"";$("csub").value=c.subject||"";$("croom").value=c.room||"";$("cstart").value=c.start||"";$("cend").value=c.end||"";$("ctea").value=c.teacher||"";
+      $("main").querySelectorAll("[data-day]").forEach(x=>x.checked=(c.days||[]).includes(x.dataset.day));
+      window.scrollTo({top:0,behavior:"smooth"});
+    });
+    $("main").querySelectorAll("[data-x]").forEach(b=>b.onclick=async()=>{
+      const c=list.find(x=>x.id===b.dataset.x);if(!c||!confirm("Delete class “"+c.name+"”? Past attendance records are kept."))return;
+      try{await oc("classes").doc(c.id).delete();classesView()}catch(e){alert("Could not delete: "+e.message)}
+    });
+    $("csave").onclick=async()=>{
+      const er=$("cerr2"),name=$("cname").value.trim();er.textContent="";
+      if(!name){er.textContent="Enter the class number or section.";return}
+      const s=$("cstart").value,e2=$("cend").value;
+      if(s&&e2&&e2<=s){er.textContent="The end time must be after the start time.";return}
+      if(list.some(c=>c.id!==editId&&c.name===name&&(c.subject||"")===$("csub").value.trim()&&classTiming(c)===classTiming({start:s,end:e2}))){er.textContent="That class already exists with the same subject and timing.";return}
+      const tu=byId[$("ctea").value];
+      const data={name,subject:$("csub").value.trim(),teacher:tu?tu.uid:"",teacherName:tu?tu.name:"",room:$("croom").value.trim(),start:s,end:e2,days:DAYS.filter(d=>$("main").querySelector('[data-day="'+d+'"]').checked),at:Date.now()};
+      try{const ref=editId?oc("classes").doc(editId):oc("classes").doc();await ref.set(data);classesView()}
+      catch(e){er.textContent=e.code==="permission-denied"?"Not allowed. Publish the latest firestore.rules.":e.message}
+    };
+    $("xt").onclick=()=>saveCSV("timetable.csv",[["Class no.","Subject","Teacher","Days","Start","End","Room","Students"]].concat(list.map(c=>[c.name,c.subject||"",c.teacherName||"",(c.days||[]).join(" "),c.start||"",c.end||"",c.room||"",studs.filter(u=>u.class===c.name).length])));
+    $("xa").onclick=()=>{
+      const recs={};rc.forEach(d=>{const r=d.data();recs[r.sid+"_"+r.uid]=r});
+      const sess=[];ss.forEach(d=>sess.push({id:d.id,...d.data()}));
+      sess.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:a.started-b.started);
+      const rows=[["Date","Weekday","Class no.","Subject","Scheduled timing","Room","Teacher","Class started","Roll","Student","Academic number","Status","Check-in time","Photo taken","Distance from class (m)","Checks","End-of-class check"]];
+      sess.forEach(s=>{
+        const cl=list.find(c=>c.id===s.classId)||list.find(c=>c.name===s.class)||{},seen={};
+        const line=(u,r)=>rows.push([s.date,new Date(s.date+"T00:00").toLocaleDateString("en-US",{weekday:"short"}),s.class||"",s.subject||cl.subject||"",s.timing||classTiming(cl),s.place||cl.room||"",s.teacherName||"",tm(s.started),u?u.roll||"":"",u?u.name:"(removed)",u?u.acno||"":"",r?r.status:"Not marked",r&&r.time?new Date(r.time).toLocaleTimeString():"",r?(r.photo?"Yes":"No"):"",r&&r.dist!=null?r.dist:"",r?r.flag||"":"",r?(r.exitManual==="Missed"?"Missed (marked by teacher)":(r.exitTime?new Date(r.exitTime).toLocaleTimeString()+(r.exitManual?" (marked by teacher)":""):"")):""]);
+        studs.filter(u=>!(s.class&&u.class&&u.class!==s.class)).sort(byName).forEach(u=>{seen[u.uid]=1;line(u,recs[s.id+"_"+u.uid])});
+        Object.keys(recs).forEach(k=>{const r=recs[k];if(r.sid===s.id&&!seen[r.uid])line(byId[r.uid],r)});
+      });
+      saveCSV("structured-attendance.csv",rows);
+    };
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- admin: end of day. Download the day's class data, then delete it from the website ---------- */
+async function endDayView(){
+  stopLive();$("main").innerHTML=LOADING;
+  try{
+    const [ss,ms]=await Promise.all([oc("sessions").get(),col("memberships").where("orgId","==",org.id).get()]);
+    const days={};ss.forEach(d=>{const s={id:d.id,...d.data()};(days[s.date]=days[s.date]||[]).push(s)});
+    const dates=Object.keys(days).sort().reverse(),byId={},studs=[];
+    ms.forEach(d=>{const u=d.data();u.id=u.uid;byId[u.id]=u;if(u.role==="student"&&u.status!=="pending")studs.push(u)});
+    const done={};
+    $("main").innerHTML='<div class="big"><b style="font-size:1.3rem">End of day</b><p class="note" style="margin:8px 0 0">At the end of the day, download each day’s attendance as a CSV file, then delete that day from the website. Photos are deleted too, so use “Download photos” first if you want to keep them. Deleting is only possible after you download the CSV. Attendance percentages are worked out from the data on the website, so they start again from zero after you delete.</p></div>'
+     +(dates.map(d=>{const L=days[d],live=L.some(x=>x.active);
+       return '<div class="row" data-day="'+d+'"><div class="name">'+esc(new Date(d+"T00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"}))+(d===today()?" (today)":"")+'<small>'+L.length+' class(es)'+(live?' · <b style="color:var(--l)">a class is still running</b>':'')+'</small><small class="st"></small></div>'
+        +'<div class="acts"><button class="sm" data-a="dl" '+(live?"disabled":"")+'>1. Download CSV</button><button class="sm" data-a="ph">Download photos</button><button class="sm" data-a="rm" disabled>2. Delete from website</button></div></div>'}).join("")||'<div class="empty">No class data on the website. Everything is clean.</div>');
+    $("main").querySelectorAll("[data-day]").forEach(row=>{
+      const d=row.dataset.day,st=row.querySelector(".st"),dl=row.querySelector('[data-a="dl"]'),rm=row.querySelector('[data-a="rm"]');
+      const phb=row.querySelector('[data-a="ph"]');
+      phb.onclick=async()=>{
+        phb.disabled=true;st.style.color="var(--muted)";st.textContent="Preparing photos…";
+        try{
+          const q=await oc("photos").where("date","==",d).get(),L=[];q.forEach(x=>{if(okImg(x.data().img))L.push(x.data())});
+          if(!L.length){st.textContent="No photos for this day.";phb.disabled=false;return}
+          L.sort((a,b)=>(a.class||"").localeCompare(b.class||"")||(a.time-b.time));
+          const html='<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'"><title>Class photos '+esc(d)+'</title><body style="font-family:system-ui,sans-serif"><h2>Class photos, '+esc(d)+'</h2>'
+            +L.map(x=>'<div style="display:inline-block;width:260px;margin:8px;vertical-align:top"><img src="'+x.img+'" style="width:100%"><br><b>'+esc((byId[x.uid]&&byId[x.uid].name)||x.name||"")+'</b>'+(byId[x.uid]&&byId[x.uid].roll?' (roll '+esc(byId[x.uid].roll)+')':'')+'<br>Class '+esc(x.class||"")+' · '+esc(new Date(x.time).toLocaleString())+'<br>'+esc(Number(x.lat).toFixed(5))+', '+esc(Number(x.lng).toFixed(5))+' · '+esc(x.distance)+' m from class'+(x.flag?'<br><span style="color:#b91c1c">Check: '+esc(x.flag)+'</span>':'')+'</div>').join("")+'</body>';
+          const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([html],{type:"text/html"}));a.download="photos-"+d+".html";
+          document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+          st.style.color="var(--p)";st.textContent=L.length+" photo(s) downloaded. Open the file in a browser.";
+        }catch(e){st.style.color="var(--a)";st.textContent=e.message}
+        phb.disabled=false;
+      };
+      dl.onclick=async()=>{
+        dl.disabled=true;st.textContent="Preparing…";
+        try{
+          const [sq,rq]=await Promise.all([oc("sessions").where("date","==",d).get(),oc("records").where("date","==",d).get()]);
+          const sess=[];sq.forEach(x=>sess.push({id:x.id,...x.data()}));
+          if(sess.some(x=>x.active))throw new Error("A class is still running. End it first.");
+          const recs=[];rq.forEach(x=>recs.push(x.data()));
+          const rows=[REC_HEAD.concat(["Teacher","Place","Subject","Scheduled timing"])];
+          sess.sort((a,b)=>a.started-b.started).forEach(s=>{
+            const sr={};recs.filter(r=>r.sid===s.id).forEach(r=>sr[r.uid]=r);
+            const ex=[s.teacherName||"",s.place||"",s.subject||"",s.timing||""],seen={};
+            studs.filter(u=>!(s.class&&u.class&&u.class!==s.class)).sort(byName).forEach(u=>{seen[u.id]=1;const r=sr[u.id];rows.push((r?recRow(r,u):[s.date,s.class||"",u.name,u.roll||"","Not marked","","","","","",u.acno||""]).concat(ex))});
+            Object.keys(sr).forEach(uid=>{if(!seen[uid])rows.push(recRow(sr[uid],byId[uid]).concat(ex))});
+          });
+          saveCSV("attendance-"+d+".csv",rows);
+          done[d]=true;rm.disabled=false;st.style.color="var(--p)";st.textContent="Downloaded. Check the file, then delete.";
+        }catch(e){st.style.color="var(--a)";st.textContent=e.message}
+        dl.disabled=false;
+      };
+      rm.onclick=async()=>{
+        if(!done[d])return;
+        if(!confirm("Delete all class data for "+d+" from the website? You can’t undo this. Make sure the CSV file was saved."))return;
+        rm.disabled=true;dl.disabled=true;st.style.color="var(--muted)";st.textContent="Deleting…";
+        try{
+          const [sq,rq,pq,hq]=await Promise.all([oc("sessions").where("date","==",d).get(),oc("records").where("date","==",d).get(),oc("presence").where("date","==",d).get(),oc("photos").where("date","==",d).get()]);
+          const refs=[];
+          sq.forEach(x=>{if(x.data().active)throw new Error("A class is still running. End it first.");refs.push(x.ref,oc("codes").doc(x.id))});
+          rq.forEach(x=>refs.push(x.ref));pq.forEach(x=>refs.push(x.ref));hq.forEach(x=>refs.push(x.ref));
+          for(let i=0;i<refs.length;i+=400){const bt=db.batch();refs.slice(i,i+400).forEach(r=>bt.delete(r));await bt.commit()}
+          endDayView();
+        }catch(e){st.style.color="var(--a)";st.textContent=e.code==="permission-denied"?"Not allowed. Publish the latest firestore.rules.":e.message;rm.disabled=false;dl.disabled=false}
+      };
+    });
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- admin: student and teacher databases ---------- */
+async function adminView(which){
+  $("main").innerHTML=LOADING;
+  try{
+    const [ms,rc,ss,dvs]=await Promise.all([col("memberships").where("orgId","==",org.id).get(),oc("records").get(),oc("sessions").get(),oc("devices").get().catch(()=>null)]);
+    const devs={};if(dvs)dvs.forEach(d=>devs[d.id]=d.data());
+    const isPend=u=>u.status==="pending";
+    const sess=[];ss.forEach(d=>sess.push(d.data()));
+    const recs=[];rc.forEach(d=>recs.push(d.data()));
+    const pres={};recs.forEach(r=>{if(r.status!=="Absent")pres[r.uid]=(pres[r.uid]||0)+1});
+    const all=[],byId={};ms.forEach(d=>{const u=d.data();u.id=u.uid;all.push(u);byId[u.id]=u});
+    const T=which==="teachers";
+    const people=all.filter(u=>u.role===(T?"teacher":"student")&&!isPend(u)).sort(byName);
+    const pend=all.filter(u=>isPend(u)&&u.role===(T?"teacher":"student")).sort(byName);
+    const held=u=>sess.filter(s=>!(s.class&&u.class&&s.class!==u.class)).length;
+    const att=u=>{const tot=held(u),p=Math.min(pres[u.id]||0,tot);return{tot,p,pct:tot?Math.round(p/tot*100):0}};
+
+    $("main").innerHTML='<div class="bar"><h3 style="margin:0">'+(T?"Teacher":"Student")+' database ('+people.length+')</h3><div class="acts">'
+     +(T?'<button class="sm" id="x1">Export teachers (CSV)</button>':'<button class="sm" id="x1">Export summary (CSV)</button><button class="sm" id="x2">Export all records (CSV)</button>')+'</div></div>'
+     +'<div id="phreq"></div><div id="pend"></div><input id="q" type="search" placeholder="Search name, phone, email or class" aria-label="Search"><div id="list" style="margin-top:12px"></div>'
+     +'<p class="note">'+(T?"Teachers who ask to join appear under “Waiting for approval” until you approve them.":"Students who ask to join with your academy code appear under “Waiting for approval” until you approve them. Use “Make teacher” to move someone to the teacher database.")+'</p>';
+
+    $("x1").onclick=()=>{
+      if(T)saveCSV("teachers.csv",[["Name","Contact","Class","Academic number","Classes run"]].concat(people.map(u=>[u.name,u.contact,u.class||"",u.acno||"",sess.filter(s=>s.teacher===u.id).length])));
+      else saveCSV("student-attendance-summary.csv",[["Name","Contact","Class","Roll","Academic number","Classes held","Attended","Attendance %"]].concat(people.map(u=>{const a=att(u);return[u.name,u.contact,u.class||"",u.roll||"",u.acno||"",a.tot,a.p,a.pct]})));
+    };
+    if(!T)$("x2").onclick=()=>{
+      const rows=recs.slice().sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:(byId[a.uid]?byId[a.uid].name:"").localeCompare(byId[b.uid]?byId[b.uid].name:""));
+      saveCSV("attendance-records.csv",[REC_HEAD].concat(rows.map(r=>recRow(r,byId[r.uid]))));
+    };
+
+    if(pend.length){
+      $("pend").innerHTML='<h3 style="margin-top:0">Waiting for approval ('+pend.length+')</h3>'+pend.map(u=>'<div class="row" style="background:var(--tint)"><div class="name">'+esc(u.name)+'<small>'+esc(u.contact)+'</small><small>Class: '+esc(u.class||"not set")+(T?"":", Roll: "+esc(u.roll||"not set"))+'</small><small>Wants to join as '+(T?"a teacher":"a student")+'</small></div><div class="acts"><button class="sm" data-a="ok" data-i="'+u.id+'">Approve</button><button class="sm" data-a="no" data-i="'+u.id+'">Decline</button></div></div>').join("")+'<h3>'+(T?"Approved teachers":"Approved students")+'</h3>';
+      $("pend").querySelectorAll("button").forEach(b=>b.onclick=async()=>{
+        try{
+          const pr=col("memberships").doc(mid(org.id,b.dataset.i));
+          if(b.dataset.a==="ok")await pr.update({status:"active"});
+          else{if(!confirm("Decline this request? The person is removed and can ask again with the academy code."))return;await pr.delete()}
+          adminView(which);
+        }catch(e){alert("Could not save: "+e.message)}
+      });
+    }
+
+    const draw=()=>{
+      const q=$("q").value.trim().toLowerCase();
+      const rows=people.filter(u=>!q||[u.name,u.contact,u.class,u.roll].join(" ").toLowerCase().includes(q)).map(u=>{
+        let extra="";
+        if(!T){const a=att(u);extra='<small>Attendance: '+a.pct+'% ('+a.p+' of '+a.tot+' classes)</small>'}
+        return '<div class="row"><div class="name">'+esc(u.name)+'<small>'+esc(u.contact)+'</small><small>Class: '+esc(u.class||"not set")+(T?"":", Roll: "+esc(u.roll||"not set"))+", Academic no: "+esc(u.acno||"not set")+'</small>'+extra+'</div>'
+         +'<div class="acts"><button class="sm" data-a="edit" data-i="'+u.id+'">Edit</button>'+(T?"":'<button class="sm" data-a="phone" data-i="'+u.id+'">Reset phone</button>')+'<button class="sm" data-a="role" data-i="'+u.id+'">'+(T?"Make student":"Make teacher")+'</button><button class="sm" data-a="del" data-i="'+u.id+'">Remove</button></div></div>'}).join("");
+      $("list").innerHTML=rows||'<div class="empty">Nobody here yet.</div>';
+      $("list").querySelectorAll("button").forEach(b=>b.onclick=async()=>{
+        const u=people.find(x=>x.id===b.dataset.i);
+        try{
+          if(b.dataset.a==="edit"){
+            const n=prompt("Full name",u.name);if(n===null)return;
+            const c=prompt(T?"Class or section this teacher teaches (for example 10-A)":"Class or section (for example 10-A)",u.class||"");if(c===null)return;
+            const upd={name:n.trim()||u.name,class:c.trim()};
+            if(!T){const r=prompt("Roll number",u.roll||"");if(r===null)return;upd.roll=r.trim()}
+            const an=prompt("Academic number (for example admission or staff number)",u.acno||"");if(an===null)return;upd.acno=an.trim();
+            await col("memberships").doc(mid(org.id,u.id)).update(upd);
+          }else if(b.dataset.a==="role"){
+            await col("memberships").doc(mid(org.id,u.id)).update({role:T?"student":"teacher"});
+          }else if(b.dataset.a==="phone"){
+            if(!confirm("Reset the saved phone for "+u.name+"? The next phone they sign in on becomes their phone."))return;
+            await oc("devices").doc(u.id).delete();
+          }else{
+            if(!confirm("Remove "+u.name+" from this academy? They can join again with the academy code."))return;
+            await col("memberships").doc(mid(org.id,u.id)).delete();
+          }
+          adminView(which);
+        }catch(e){alert("Could not save: "+e.message)}
+      });
+    };
+    $("q").oninput=draw;draw();
+    if(!T){
+      const reqs=people.filter(u=>devs[u.id]&&devs[u.id].pending);
+      if(reqs.length){
+        $("phreq").innerHTML='<h3 style="margin-top:0">Phone change requests ('+reqs.length+')</h3>'+reqs.map(u=>'<div class="row" style="background:var(--tint)"><div class="name">'+esc(u.name)+'<small>Wants to use a new phone'+(devs[u.id].pendingAt?' (asked '+tm(devs[u.id].pendingAt)+')':'')+'</small></div><div class="acts"><button class="sm" data-p="ok" data-i="'+u.id+'">Approve</button><button class="sm" data-p="no" data-i="'+u.id+'">Decline</button></div></div>').join("")+'<h3>All students</h3>';
+        $("phreq").querySelectorAll("button").forEach(b=>b.onclick=async()=>{
+          try{const D=firebase.firestore.FieldValue.delete(),id=b.dataset.i;
+            await oc("devices").doc(id).update(b.dataset.p==="ok"?{dev:devs[id].pending,pending:D,pendingAt:D}:{pending:D,pendingAt:D});adminView(which)}
+          catch(e){alert("Could not save: "+e.message)}
+        });
+      }
+    }
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- class locations (saved rooms and map picker) ---------- */
+const roomErr=e=>e.code==="permission-denied"?"Saved locations need the updated Firestore rules. Publish the latest firestore.rules and try again.":e.message;
+let pmap=null,pmark=null;
+function closePicker(){$("picker").classList.add("hidden");if(pmap){pmap.remove();pmap=null}pmark=null}
+$("pcancel").onclick=closePicker;
+function openPicker(radius,onSave){
+  if(typeof L==="undefined"){alert("The map could not load. Check your internet connection and try again.");return}
+  $("picker").classList.remove("hidden");$("pname").value="";
+  if(pmap){pmap.remove();pmap=null}pmark=null;
+  pmap=L.map("pickmap").setView([20.5937,78.9629],5);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(pmap);
+  setTimeout(()=>pmap&&pmap.invalidateSize(),50);
+  const pin=L.divIcon({className:"",html:'<div style="width:20px;height:20px;border-radius:50%;background:#0f5c4d;border:3px solid #fff;box-shadow:0 0 0 2px #0f5c4d"></div>',iconSize:[20,20],iconAnchor:[10,10]});
+  let pt=null,ring=null;
+  const place=(ll,zoom)=>{
+    pt=ll;
+    if(pmark)pmark.setLatLng(ll);else{pmark=L.marker(ll,{draggable:true,icon:pin}).addTo(pmap);pmark.on("drag",()=>{pt=pmark.getLatLng();if(ring)ring.setLatLng(pt)})}
+    if(ring)ring.setLatLng(ll);else ring=L.circle(ll,{radius:radius,color:"#0f5c4d",weight:2,fillOpacity:.08}).addTo(pmap);
+    if(zoom)pmap.setView(ll,zoom);
+  };
+  pmap.on("click",e=>place(e.latlng));
+  const useGps=async silent=>{
+    const b=$("pgps");b.disabled=true;
+    try{const q=await here();if(!pmap)return;place(L.latLng(q.coords.latitude,q.coords.longitude),18)}
+    catch(e){if(!silent)alert(e.message)}
+    b.disabled=false;
+  };
+  $("pgps").onclick=()=>useGps(false);
+  useGps(true);
+  $("psave").onclick=()=>{
+    const n=$("pname").value.trim();
+    if(!pt){alert("Tap the map to place the pin first.");return}
+    if(!n){alert("Give the location a name, for example Room 101.");return}
+    const ll=pt;closePicker();onSave(n,ll.lat,ll.lng);
+  };
+}
+
+/* ---------- teacher: run a class ---------- */
+async function classView(){
+  $("main").innerHTML=LOADING;
+  try{
+    const [ss,rm,cq]=await Promise.all([oc("sessions").where("teacher","==",me.uid).get(),oc("rooms").get().catch(()=>null),oc("classes").get().catch(()=>null)]);
+    const cl=[];if(cq)cq.forEach(d=>cl.push({id:d.id,...d.data()}));
+    cl.sort((a,b)=>((b.teacher===me.uid)-(a.teacher===me.uid))||(a.name||"").localeCompare(b.name||"",undefined,{numeric:true}));
+    const list=[];ss.forEach(d=>list.push({id:d.id,...d.data()}));
+    list.sort((a,b)=>b.started-a.started);
+    const act=list.find(s=>s.active);
+    if(act)return sessionView(act.id);
+    const rooms=[];if(rm)rm.forEach(d=>rooms.push({id:d.id,...d.data()}));rooms.sort(byName);
+    let last="gps";try{last=localStorage.getItem("rc_room")||"gps"}catch(e){}
+    if(!rooms.some(r=>r.id===last))last="gps";
+    $("main").innerHTML='<div class="big"><b style="font-size:1.3rem">Start a class</b><p class="note">Choose where the class is held. Students must be inside the allowed distance of that spot to check in, and then scan your code.</p>'
+     +(cl.length?'<label for="clsel">Class</label><select id="clsel">'+cl.map(c=>'<option value="'+esc(c.id)+'">'+esc(c.name)+(c.subject?' · '+esc(c.subject):'')+(classTiming(c)?' · '+esc(classTiming(c)):'')+(c.teacher===me.uid?' (yours)':'')+'</option>').join("")+'<option value="">Other (type below)</option></select><input id="cls" type="text" class="hidden" placeholder="for example 10-A" style="margin-top:8px" value="'+esc(profile.class||"")+'">'
+       :'<label for="cls">Class or section</label><input id="cls" type="text" placeholder="for example 10-A" value="'+esc(profile.class||"")+'">')
+     +'<label for="loc">Class location</label><select id="loc"><option value="gps">My current location (GPS)</option>'+rooms.map(r=>'<option value="'+r.id+'"'+(r.id===last?" selected":"")+'>'+esc(r.name)+'</option>').join("")+'</select>'
+     +'<div class="acts" style="margin-top:8px"><button class="sm" id="addgps" type="button">Save my current location…</button><button class="sm" id="addmap" type="button">Pick on map…</button><button class="sm" id="delroom" type="button">Delete selected</button></div>'
+     +'<p class="note" style="margin:6px 0 0">'+(rm?"Saved locations are shared with all teachers of this academy. With a saved location you can start the class from anywhere.":"Saved locations are unavailable until the latest Firestore rules are published.")+'</p>'
+     +'<label for="rad">Allowed distance from the location (meters)</label><input id="rad" type="number" min="10" max="300" value="30">'
+     +'<p class="note" style="margin:6px 0 0">Phone GPS is often off by 10 to 30 m indoors, so 25 to 30 m is a good balance. A smaller distance blocks more cheating but may reject students indoors.</p>'
+     +'<button class="btn" id="start" style="margin-top:16px">Start class and show code</button><div class="err" id="serr" role="alert"></div></div>'
+     +'<div class="bar"><h3 style="margin:0">Past classes</h3>'+(list.length?'<button class="sm" id="dlall">Download all my attendance (CSV)</button>':'')+'</div>'
+     +(list.slice(0,15).map(s=>'<div class="row"><div class="name">'+esc(s.date)+', class '+esc(s.class||"(all)")+'<small>'+(s.place?esc(s.place)+', ':'')+'started '+tm(s.started)+'</small></div><button class="sm" data-s="'+s.id+'">Open</button></div>').join("")||'<div class="empty">No classes yet.</div>');
+    $("main").querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>sessionView(b.dataset.s));
+    const radiusNow=()=>Math.max(10,Math.min(300,parseInt($("rad").value,10)||30));
+    $("loc").onchange=()=>{try{localStorage.setItem("rc_room",$("loc").value)}catch(e){}};
+    if($("clsel")){
+      const pick=()=>{
+        const c=cl.find(x=>x.id===$("clsel").value);$("cls").classList.toggle("hidden",!!c);
+        const r=c&&c.room?rooms.find(x=>x.name===c.room):null;if(r)$("loc").value=r.id;   /* use the class's room if it is a saved location */
+      };
+      $("clsel").onchange=pick;pick();
+    }
+    const saveRoom=async(n,lat,lng)=>{
+      try{const ref=await oc("rooms").add({name:n,lat,lng,owner:me.uid,at:Date.now()});try{localStorage.setItem("rc_room",ref.id)}catch(e){}classView()}
+      catch(e){alert(roomErr(e))}
+    };
+    $("addgps").onclick=async()=>{
+      const n=(prompt("Name for this location, for example Room 101")||"").trim();if(!n)return;
+      const el=$("serr");el.style.color="var(--muted)";el.textContent="Getting your location (up to 15 seconds)…";
+      try{
+        const p=await here(prog(el));
+        if(p.coords.accuracy>100)throw new Error("Your location is only accurate to "+Math.round(p.coords.accuracy)+" m. Use “Pick on map” instead.");
+        saveRoom(n,p.coords.latitude,p.coords.longitude);
+      }catch(e){el.style.color="var(--a)";el.textContent=e.message}
+    };
+    $("addmap").onclick=()=>openPicker(radiusNow(),saveRoom);
+    $("delroom").onclick=async()=>{
+      const sel=$("loc").value,r=rooms.find(x=>x.id===sel);
+      if(!r){alert("Choose a saved location to delete.");return}
+      if(!confirm("Delete the saved location “"+r.name+"”?"))return;
+      try{await oc("rooms").doc(sel).delete();try{localStorage.removeItem("rc_room")}catch(e){}classView()}catch(e){alert(roomErr(e))}
+    };
+    if($("dlall"))$("dlall").onclick=async()=>{
+      try{
+        const [rs,us]=await Promise.all([oc("records").where("teacher","==",me.uid).get(),col("memberships").where("orgId","==",org.id).get()]);
+        const byId={};us.forEach(d=>byId[d.data().uid]=d.data());
+        const rows=[];rs.forEach(d=>{const r=d.data();rows.push(recRow(r,byId[r.uid]))});
+        rows.sort((a,b)=>a[0]<b[0]?1:a[0]>b[0]?-1:String(a[2]).localeCompare(String(b[2])));
+        saveCSV("my-attendance.csv",[REC_HEAD].concat(rows));
+      }catch(e){alert("Could not export: "+e.message)}
+    };
+    $("start").onclick=async()=>{
+      const el=$("serr"),btn=$("start"),sel=$("loc").value,csel=$("clsel"),cdef=csel&&csel.value?cl.find(x=>x.id===csel.value):null,cls=cdef?cdef.name:$("cls").value.trim(),radius=radiusNow();
+      el.style.color="var(--muted)";btn.disabled=true;
+      try{
+        let lat,lng,acc=0,place="Current location";
+        if(sel==="gps"){
+          el.textContent="Getting your location (up to 15 seconds)…";
+          const p=await here(prog(el));
+          if(p.coords.accuracy>100)throw new Error("Your location is only accurate to "+Math.round(p.coords.accuracy)+" m. Go near a window, turn on high-accuracy GPS, and try again, or choose a saved location.");
+          lat=p.coords.latitude;lng=p.coords.longitude;acc=Math.round(p.coords.accuracy);
+        }else{
+          const r=rooms.find(x=>x.id===sel);if(!r)throw new Error("Choose a class location.");
+          lat=r.lat;lng=r.lng;place=r.name;
+        }
+        const id=oc("sessions").doc().id,bt=db.batch();
+        bt.set(oc("sessions").doc(id),{teacher:me.uid,teacherName:profile.name,class:cls,date:today(),lat,lng,accuracy:acc,radius,place,classId:cdef?cdef.id:"",subject:cdef?cdef.subject||"":"",timing:cdef?classTiming(cdef):"",active:true,checkinOpen:true,started:Date.now(),startedAt:SERVER_TIME()});
+        const c1=gen();let c2=gen();while(c2===c1)c2=gen();
+        bt.set(oc("codes").doc(id),{teacher:me.uid,code:c1,endCode:c2,at:SERVER_TIME()});
+        el.textContent="Starting class…";
+        await bt.commit();sessionView(id);
+      }catch(e){btn.disabled=false;el.style.color="var(--a)";el.textContent=e.code==="permission-denied"?"Permission denied. Make sure you are a teacher or admin of this academy and the latest Firestore rules are published.":e.message}
+    };
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+async function sessionView(sid){
+  stopLive();$("main").innerHTML=LOADING;
+  try{
+    const sd=await oc("sessions").doc(sid).get();if(!sd.exists)return classView();
+    const s=sd.data();
+    const us=await col("memberships").where("orgId","==",org.id).get();
+    const everyone=[],stu=[];let showAll=false;
+    us.forEach(d=>{const u=d.data();u.id=u.uid;
+      if(u.uid===me.uid||u.role!=="student"||u.status==="pending")return;
+      everyone.push(u)});
+    const refill=()=>{stu.length=0;everyone.forEach(u=>{if(showAll||u.self||!(s.class&&u.class&&u.class!==s.class))stu.push(u)});stu.sort(byName)};
+    refill();
+    let rec={},pr={};
+    $("main").innerHTML='<div class="bar"><div><b style="font-size:1.3rem">Class '+esc(s.class||"(all)")+(s.subject?' · '+esc(s.subject):'')+'</b><br><small style="color:var(--muted)">'+esc(s.date)+(s.timing?', scheduled '+esc(s.timing):'')+(s.place?', '+esc(s.place):'')+', started '+tm(s.started)+', allowed distance '+s.radius+' m</small></div>'
+     +(s.active?'<span class="tag Present">Live</span>':'<span class="tag" style="background:var(--muted)">Ended</span>')+'</div>'
+     +(s.active?'<div class="big center"><div id="closedbox" class="hidden"><b id="closedt" style="font-size:1.2rem">Check-in is closed</b><p class="note" id="closedp" style="margin:6px 0 0"></p></div><div id="codebox"><div id="qr"></div><div class="code" id="codetxt">------</div><div style="color:var(--muted)" id="cd"></div></div><p class="note" style="margin:8px 0 0">Students first confirm they are in the room, then scan this QR code or type the 6-digit code. The code is shown for the first '+CHECKIN_SECONDS+' seconds only, then hidden. Near the end of class, tap “Start end-of-class check”. The code then shows for '+EXIT_SECONDS+' seconds and stops working.</p></div>':'')
+     +'<div class="stats4" id="stats"></div><h3 style="margin:0 0 6px">Manual attendance</h3><p class="note" style="margin:0 0 10px">For students who forgot to scan or have no phone: tap <b>Present</b> (normal attendance), <b>Late</b> (came late) or <b>Absent</b> next to their name. For students who were in class but missed the end-of-class code, tap <b>End ✓</b> (attended) or <b>Missed end</b>.</p><input id="rq" type="search" placeholder="Search a student" aria-label="Search students" style="margin-bottom:10px"><div id="roster"></div>'
+     +'<div class="bar" style="margin-top:12px"><div class="acts"><button class="btn ghost" id="mapb">Show map</button><button class="btn ghost" id="csvb">Download CSV</button>'+(s.active?'<button class="btn ghost" id="exitb"></button>':'')+'</div>'+(s.active?'<button class="btn" id="end">End class</button>':'<button class="btn ghost" id="backb">Back to classes</button>')+'</div><div id="mapbox"></div>';
+
+    const render=()=>{
+      let P=0,L2=0,A=0,I=0;
+      const dc={};Object.values(rec).forEach(r=>{if(r.via==="code"&&r.dev&&r.dev!=="unknown")dc[r.dev]=(dc[r.dev]||0)+1});
+      const rq=($("rq")?$("rq").value:"").trim().toLowerCase();
+      const none=!stu.length?(everyone.length?'<div class="empty">'+everyone.length+' signed-in student(s) belong to another class than “'+esc(s.class)+'”. <button class="sm" id="showall" type="button">Show all students</button></div>':'<div class="empty">No students have signed in yet. Each student must sign in once with their own account to appear here.</div>'):'<div class="empty">No student matches your search.</div>';
+      $("roster").innerHTML=stu.filter(u=>!rq||[u.name,u.roll,u.class].join(" ").toLowerCase().includes(rq)).map(u=>{
+        const r=rec[u.id],p=pr[u.id];let st,w="";
+        if(r){if(r.status==="Present")P++;else if(r.status==="Late")L2++;else A++;
+          st='<small style="color:var(--'+(r.status==="Absent"?"a":r.status==="Late"?"l":"p")+')">'+r.status+(r.time?", "+tm(r.time):"")+(r.via==="teacher"?" (marked by teacher)":(r.dist!=null?", "+fmt(r.dist)+" from you":""))+'</small>';
+          if(r.via==="code"){const ws=[];if(r.dev&&dc[r.dev]>1)ws.push("same phone used for "+dc[r.dev]+" students");if(r.flag)ws.push(r.flag);if(ws.length)w='<small style="color:var(--a)">Check: '+esc(ws.join("; "))+'</small>'}
+          if(r.photo)w+='<div class="acts" style="margin-top:6px"><button class="sm" data-ph="'+u.id+'">View photo</button></div>';
+          if(r.status!=="Absent"){
+            if(r.exitManual==="Missed")w+='<small style="color:var(--a)">Missed the end of class (marked by teacher)</small>';
+            else if(r.exitTime)w+='<small style="color:var(--p)">End check passed'+(r.exitManual?' (marked by teacher)':'')+', '+tm(r.exitTime)+'</small>';
+            else if(r.via==="code"&&s.exitStarted)w+='<small style="color:var(--'+(s.exitOpen?'l':'a')+')">'+(s.exitOpen?'End check: waiting for the code':'Did not enter the end code, may have left early')+'</small>';
+            if(s.exitStarted||!s.active)w+='<div class="acts" style="margin-top:6px"><button class="sm" data-e="ok" data-u="'+u.id+'">End ✓ (attended)</button><button class="sm" data-e="miss" data-u="'+u.id+'">Missed end</button></div>';
+          }}
+        else if(p&&p.inside){I++;st='<small style="color:var(--l)">In the room, waiting for the code ('+fmt(p.distance)+' away)</small>'}
+        else if(p)st='<small style="color:var(--a)">Outside the room, '+fmt(p.distance)+' away</small>';
+        else st='<small>Not here yet</small>';
+        const b=(v,l)=>'<button class="'+l+'" data-u="'+u.id+'" data-v="'+v+'" aria-pressed="'+(!!r&&r.status===v)+'" aria-label="'+esc(u.name)+' '+v+'">'+v+'</button>';
+        return '<div class="row"><div class="name">'+esc(u.name)+""+'<small>'+esc(u.class?u.class+(u.roll?", roll "+u.roll:""):u.contact)+'</small>'+st+w+'</div><div class="seg">'+b("Present","P")+b("Late","L")+b("Absent","A")+'</div></div>'}).join("")||none;
+      if($("showall"))$("showall").onclick=()=>{showAll=true;refill();render()};
+      $("stats").innerHTML='<div class="stat"><b style="color:var(--p)">'+P+'</b><small>Present</small></div><div class="stat"><b style="color:var(--l)">'+L2+'</b><small>Late</small></div><div class="stat"><b style="color:var(--a)">'+A+'</b><small>Absent</small></div><div class="stat"><b>'+I+'</b><small>In room</small></div>';
+      $("roster").querySelectorAll(".seg button").forEach(b=>b.onclick=()=>oc("records").doc(sid+"_"+b.dataset.u).set({sid,uid:b.dataset.u,teacher:s.teacher,date:s.date,class:s.class||"",status:b.dataset.v,time:Date.now(),via:"teacher"}).catch(e=>alert("Could not save: "+e.message)));
+      $("roster").querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{
+        const D=firebase.firestore.FieldValue.delete();
+        oc("records").doc(sid+"_"+b.dataset.u).update(b.dataset.e==="ok"?{exitManual:"Confirmed",exitTime:Date.now()}:{exitManual:"Missed",exitTime:D}).catch(e=>alert("Could not save: "+e.message));
+      });
+    };
+    const fail=e=>{$("roster").innerHTML='<div class="empty">Live updates failed: '+esc(e.message)+'</div>'};
+    live.push(oc("records").where("teacher","==",s.teacher).where("sid","==",sid).onSnapshot(q=>{rec={};q.forEach(d=>rec[d.data().uid]=d.data());render()},fail));
+    live.push(oc("presence").where("teacher","==",s.teacher).where("sid","==",sid).onSnapshot(q=>{pr={};q.forEach(d=>pr[d.data().uid]=d.data());render()},fail));
+    render();
+    $("rq").oninput=render;
+    $("roster").onclick=e=>{const b=e.target.closest("[data-ph]");if(b){const u=everyone.find(x=>x.id===b.dataset.ph);showPhoto(sid,b.dataset.ph,u?u.name:"Student")}};
+
+    $("csvb").onclick=()=>saveCSV("class-"+(s.class||"all")+"-"+s.date+".csv",[REC_HEAD].concat(stu.map(u=>{
+      const r=rec[u.id];return r?recRow(r,u):[s.date,s.class||"",u.name,u.roll||"","Not marked","","","","","",u.acno||""]})));
+
+    if(s.active){
+      /* Two fixed codes are made when the class starts: one for check-in, one for the end-of-class check.
+         Refreshing the page shows the same codes; nothing is regenerated here. */
+      const cref=oc("codes").doc(sid);
+      let codes=(await cref.get()).data()||{};
+      if(!codes.code||!codes.endCode){   /* a class started with an older version */
+        const c1=codes.code||gen();let c2=gen();while(c2===c1)c2=gen();
+        codes={code:c1,endCode:c2};await cref.update(codes);
+      }
+      const showCode=()=>{const c=s.exitOpen?codes.endCode:codes.code;
+        $("codetxt").textContent=c.slice(0,3)+" "+c.slice(3);$("qr").innerHTML="";
+        if(window.QRCode)new QRCode($("qr"),{text:"RC1:"+sid+":"+c,width:200,height:200})};
+      const codeLive=()=>s.checkinOpen!==false||!!s.exitOpen;
+      const paint=()=>{
+        const on=codeLive();$("codebox").classList.toggle("hidden",!on);$("closedbox").classList.toggle("hidden",on);if(on)showCode();
+        if(!on){
+          $("closedt").textContent=s.exitStarted?"End-of-class check is closed":"Check-in is closed";
+          $("closedp").textContent=s.exitStarted?"The code no longer works. Students who missed it can be marked below with “End ✓ (attended)” or “Missed end”.":"The code is hidden and no longer works. Mark late students and anyone without a phone with Present or Late below. Tap “Start end-of-class check” near the end of class.";
+        }
+      };
+      let closing=false;
+      const closeCode=async f=>{
+        if(closing)return;closing=true;
+        try{await oc("sessions").doc(sid).update(f);Object.assign(s,f);exitLabel();paint();render()}
+        catch(e){$("cd").textContent="Could not close the code: "+e.message}
+        closing=false;
+      };
+      paint();
+      const iv=setInterval(()=>{
+        if(!codeLive()){paint();return}
+        let w;
+        if(s.exitOpen){
+          if(!s.exitLocalAt)s.exitLocalAt=(s.exitOpenAt&&s.exitOpenAt.toMillis)?s.exitOpenAt.toMillis():Date.now();   /* same countdown after a refresh */
+          w=EXIT_SECONDS-Math.floor((Date.now()-s.exitLocalAt)/1000);
+          if(w<=0){closeCode({exitOpen:false});return}
+          $("cd").textContent="End-of-class check closes in "+w+" s";
+        }else{
+          w=CHECKIN_SECONDS-Math.floor((Date.now()-s.started)/1000);
+          if(w<=0){closeCode({checkinOpen:false});return}
+          $("cd").textContent="Check-in closes in "+w+" s";
+        }
+      },1000);
+      live.push(()=>clearInterval(iv));
+      const exitLabel=()=>{$("exitb").textContent=s.exitOpen?"Close end-of-class check":(s.exitStarted?"Reopen end-of-class check ("+EXIT_SECONDS+" s)":"Start end-of-class check ("+EXIT_SECONDS+" s)")};
+      exitLabel();
+      $("exitb").onclick=async()=>{
+        try{
+          if(s.exitOpen){await oc("sessions").doc(sid).update({exitOpen:false});s.exitOpen=false}
+          else{const u={exitOpen:true,exitOpenAt:SERVER_TIME()};if(!s.exitStarted)u.exitStarted=Date.now();
+            await oc("sessions").doc(sid).update(u);s.exitOpen=true;s.exitLocalAt=Date.now();if(u.exitStarted)s.exitStarted=u.exitStarted}
+          exitLabel();render();paint();
+        }catch(e){alert("Could not update: "+(e.code==="permission-denied"?"publish the latest Firestore rules.":e.message))}
+      };
+      $("end").onclick=async()=>{
+        if(!confirm("End this class? Students can no longer check in."))return;
+        const missing=stu.filter(u=>!rec[u.id]);
+        const absent=missing.length>0&&confirm("Mark the "+missing.length+" students who have not checked in as absent?");
+        try{
+          const bt=db.batch();bt.update(oc("sessions").doc(sid),{active:false,ended:Date.now()});
+          if(absent)missing.forEach(u=>bt.set(oc("records").doc(sid+"_"+u.id),{sid,uid:u.id,teacher:s.teacher,date:s.date,class:s.class||"",status:"Absent",time:Date.now(),via:"teacher"}));
+          await bt.commit();stopLive();classView();
+        }catch(e){alert("Could not end the class: "+e.message)}
+      };
+    }else $("backb").onclick=()=>{stopLive();classView()};
+    $("mapb").onclick=()=>{
+      $("mapbox").innerHTML='<div id="map" class="map"></div><p class="note">Green: in the room. Orange: outside. Blue: the classroom location.</p>';
+      const pins=[];stu.forEach(u=>{const p=pr[u.id];if(p&&p.lat!=null)pins.push({lat:p.lat,lng:p.lng,acc:p.accuracy,color:p.inside?"#15803d":"#c2410c",label:u.name+" ("+tm(p.time)+")"})});
+      drawMap("map",pins,s);
+    };
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- student ---------- */
+async function studentView(){
+  stopLive();$("main").innerHTML=LOADING;
+  try{
+    const [act,rc,all,pd,dd]=await Promise.all([oc("sessions").where("active","==",true).get(),oc("records").where("uid","==",me.uid).get(),oc("sessions").get(),oc("presence").where("uid","==",me.uid).get(),oc("devices").doc(me.uid).get().catch(()=>null)]);
+    /* one phone per student: the first phone used is saved; another phone needs administrator approval */
+    const myDev=deviceId();let dv=dd&&dd.exists?dd.data():null,devOk=true;
+    if(dd&&!dd.exists&&myDev!=="unknown"){try{await oc("devices").doc(me.uid).set({uid:me.uid,dev:myDev,at:Date.now()})}catch(e){}}
+    else if(dv)devOk=dv.dev===myDev;
+    const ok=s=>!(s.class&&profile.class&&s.class!==profile.class);
+    const actives=[];act.forEach(d=>{const s=d.data();s.id=d.id;if(ok(s))actives.push(s)});
+    const recs=[],rmap={};rc.forEach(d=>{const r=d.data();recs.push(r);rmap[r.sid]=r});
+    recs.sort((a,b)=>a.date<b.date?1:-1);
+    const prs={};pd.forEach(d=>prs[d.data().sid]=d.data());
+    let total=0;all.forEach(d=>{if(ok(d.data()))total++});
+    const pres=Math.min(recs.filter(r=>r.status!=="Absent").length,total),pct=total?Math.round(pres/total*100):0;
+    const cqs=await oc("classes").get().catch(()=>null),mc=[];
+    if(cqs)cqs.forEach(d=>{const c=d.data();if(!profile.class||c.name===profile.class)mc.push(c)});
+    mc.sort((a,b)=>(a.start||"").localeCompare(b.start||""));
+    const tt=mc.length?'<h3>Class timetable</h3>'+mc.map(c=>'<div class="row"><div class="name">'+esc(c.name)+(c.subject?' · '+esc(c.subject):'')+'<small>'+esc((c.days||[]).join(", "))+(classTiming(c)?' · '+esc(classTiming(c)):'')+(c.room?' · '+esc(c.room):'')+(c.teacherName?' · '+esc(c.teacherName):'')+'</small></div></div>').join(""):"";
+    let h='<div class="big">Your attendance<br><b>'+pct+'%</b><div style="color:var(--muted)">'+pres+' of '+total+' classes</div></div><div id="live"></div>'+tt+'<h3>History</h3>';
+    if(!recs.length)h+='<div class="empty">No records yet.</div>';
+    recs.forEach(r=>{h+='<div class="row"><div class="name">'+new Date(r.date+"T00:00").toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})+'<small>'+esc(r.class||"")+'</small></div><span class="tag '+r.status+'">'+r.status+'</span></div>'});
+    $("main").innerHTML=h;
+
+    const box=$("live");
+    if(!devOk){
+      box.innerHTML='<div class="big"><b style="font-size:1.2rem">This account is tied to another phone</b><p class="note" style="margin:6px 0 0">To check in from this phone, your administrator has to approve it.</p>'+(dv.pending===myDev?'<p style="margin:10px 0 0;color:var(--p);font-weight:600">Request sent. Waiting for approval.</p><button class="btn ghost" id="refresh" style="margin-top:12px">Check again</button>':'<button class="btn" id="reqph" style="margin-top:12px">Request phone change</button>')+'</div>';
+      if($("reqph"))$("reqph").onclick=async()=>{try{await oc("devices").doc(me.uid).update({pending:myDev,pendingAt:Date.now()});studentView()}catch(e){alert("Could not send the request: "+e.message)}};
+      if($("refresh"))$("refresh").onclick=studentView;
+      return}
+    if(!actives.length){box.innerHTML='<div class="big"><b style="font-size:1.2rem">No class in progress</b><p class="note" style="margin:6px 0 0">When your teacher starts a class, it appears here.</p><button class="btn ghost" id="refresh" style="margin-top:12px">Refresh</button></div>';$("refresh").onclick=studentView;return}
+    let s=actives.find(x=>x.id===selSid)||(actives.length===1?actives[0]:null);
+    if(!s){box.innerHTML='<div class="big"><b style="font-size:1.2rem">Choose your class</b>'+actives.map(x=>'<div class="row" style="margin-top:10px"><div class="name">'+esc(x.class||"Class")+'<small>'+esc(x.teacherName)+'</small></div><button class="sm" data-s="'+x.id+'">Join</button></div>').join("")+'</div>';
+      box.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{selSid=b.dataset.s;studentView()});return}
+    const phd=await oc("photos").doc(s.id+"_"+me.uid).get().catch(()=>null),hasPh=!!(phd&&phd.exists);
+    const r=rmap[s.id],p=prs[s.id],inside=!!p&&p.inside&&Date.now()-p.time<15*60000;
+    let c='<div class="big"><b style="font-size:1.2rem">Class in progress</b><div style="color:var(--muted)">'+esc(s.class||"Class")+' with '+esc(s.teacherName)+(s.place?' in '+esc(s.place):'')+'</div>';
+    if(r){c+='<p style="margin:14px 0 0">You are marked <span class="tag '+r.status+'">'+r.status+'</span> at '+tm(r.time)+'.</p>';
+      if(r.status!=="Absent"&&r.via==="code"&&s.exitOpen&&!r.exitTime&&!r.exitManual)c+='<div class="step on"><b>End-of-class check</b><div class="note">Your teacher asked everyone still in the room to confirm. Scan the current code or type it.</div><div style="margin-top:8px"><button class="btn" id="scan">Scan QR code</button></div><label for="cin">Or type the 6-digit code</label><input id="cin" type="text" inputmode="numeric" maxlength="6" autocomplete="off"><button class="btn ghost" id="mark" style="margin-top:8px">Confirm I am still here</button><div class="err" id="merr" role="alert"></div></div>';
+      else if(r.exitManual==="Missed")c+='<p class="note" style="margin:8px 0 0">Your teacher marked you as missing the end-of-class check.</p>';
+      else if(r.exitTime)c+='<p class="note" style="margin:8px 0 0">End-of-class check confirmed at '+tm(r.exitTime)+'.</p>';
+      c+='</div>'}
+    else if(s.checkinOpen===false){
+      c+='<div class="step"><b>Check-in is closed</b><div class="note">The code is no longer shown. If you forgot to scan or did not bring your phone, ask your teacher to mark you present.</div><button class="btn ghost" id="refresh2" style="margin-top:8px">Refresh</button></div></div>'}
+    else{
+      c+='<div class="step '+(inside?"ok":"on")+'"><b>Step 1: Confirm you are in the classroom</b>';
+      if(inside)c+='<div style="color:var(--p);font-weight:600">Confirmed, '+fmt(p.distance)+' from your teacher.</div>';
+      else{if(p)c+='<div style="color:var(--a);font-weight:600">You were '+fmt(p.distance)+' away. You must be within '+s.radius+' m. Move closer and try again.</div>';
+        c+='<button class="btn" id="verify2" style="margin-top:8px">Check my location</button><div class="err" id="verr" role="alert"></div>'}
+      c+='</div><div class="step '+(hasPh?"ok":inside?"on":"")+'" style="'+(inside?"":"opacity:.5")+'"><b>Step 2: Take a live photo</b>';
+      if(hasPh)c+='<div style="color:var(--p);font-weight:600">Photo saved with your location and time.</div>';
+      else if(inside)c+='<div class="note">Take a photo of yourself in the classroom. The time and your location are printed on it and saved with your academy’s records, which your teacher and admin can view. Uploading from the gallery is not allowed.</div><button class="btn" id="takephoto" style="margin-top:8px">Open camera</button><div class="err" id="perr" role="alert"></div>';
+      c+='</div><div class="step '+(hasPh?"on":"")+'" style="'+(hasPh?"":"opacity:.5")+'"><b>Step 3: Scan your teacher’s code</b>';
+      if(hasPh)c+='<div style="margin-top:8px"><button class="btn" id="scan">Scan QR code</button></div><label for="cin">Or type the 6-digit code</label><input id="cin" type="text" inputmode="numeric" maxlength="6" autocomplete="off"><button class="btn ghost" id="mark" style="margin-top:8px">Mark me present</button><div class="err" id="merr" role="alert"></div>';
+      c+='</div></div>';
+    }
+    box.innerHTML=c;
+    if($("refresh2"))$("refresh2").onclick=studentView;
+    const savePresence=(q,d)=>oc("presence").doc(s.id+"_"+me.uid).set({sid:s.id,uid:me.uid,teacher:s.teacher,date:s.date,lat:q.coords.latitude,lng:q.coords.longitude,accuracy:Math.round(q.coords.accuracy),distance:Math.round(d),inside:Math.round(d)<=s.radius,time:Date.now()});
+    const mark=async(code,errEl)=>{
+      errEl.style.color="var(--muted)";errEl.textContent="Re-checking your location…";
+      try{
+        const {q,d,flag}=await checkLocation(errEl,s);   /* fresh location check at the moment of marking */
+        await savePresence(q,d);
+        if(d>s.radius)throw new Error("You are "+fmt(d)+" from your teacher, more than the allowed "+s.radius+" m. Move closer and try again.");
+        errEl.style.color="var(--muted)";errEl.textContent="Marking attendance…";
+        await oc("records").doc(s.id+"_"+me.uid).set({sid:s.id,uid:me.uid,teacher:s.teacher,date:s.date,class:s.class||"",status:"Present",code,time:Date.now(),via:"code",photo:true,dev:deviceId(),dist:Math.round(d),acc:Math.round(q.coords.accuracy),lat:q.coords.latitude,lng:q.coords.longitude,flag});
+        studentView();
+      }catch(e){errEl.style.color="var(--a)";errEl.textContent=e.code==="permission-denied"?"That code is wrong or has expired, or check-in has closed. Try the current code, or ask your teacher to mark you manually.":e.message}
+    };
+    const markExit=async(code,errEl)=>{
+      errEl.style.color="var(--muted)";errEl.textContent="Re-checking your location…";
+      try{
+        const {q,d}=await checkLocation(errEl,s);
+        if(d>s.radius)throw new Error("You are "+fmt(d)+" from your teacher, more than the allowed "+s.radius+" m. Stay in the room and try again.");
+        errEl.textContent="Saving…";
+        await oc("records").doc(s.id+"_"+me.uid).update({exitTime:Date.now(),exitCode:code,exitDist:Math.round(d),exitLat:q.coords.latitude,exitLng:q.coords.longitude});
+        studentView();
+      }catch(e){errEl.style.color="var(--a)";errEl.textContent=e.code==="permission-denied"?"That code is wrong or has expired, or the 15 seconds are over. Look at the teacher’s current code and try again.":e.message}
+    };
+    const submit=r?markExit:mark;
+    if($("takephoto"))$("takephoto").onclick=()=>openCamera(s,profile.name,async o=>{
+      const el=$("perr");el.style.color="var(--muted)";el.textContent="Saving photo…";
+      try{
+        await savePresence(o.q,o.d);
+        await oc("photos").doc(s.id+"_"+me.uid).set({sid:s.id,uid:me.uid,name:profile.name,teacher:s.teacher,date:s.date,class:s.class||"",img:o.img,lat:o.q.coords.latitude,lng:o.q.coords.longitude,accuracy:Math.round(o.q.coords.accuracy),distance:Math.round(o.d),flag:o.flag,dev:deviceId(),time:o.time,serverAt:SERVER_TIME()});
+        studentView();
+      }catch(e){el.style.color="var(--a)";el.textContent=e.code==="permission-denied"?"The photo was not accepted. The class may have ended, or the latest firestore.rules are not published.":e.message}
+    });
+    if(!r)live.push(oc("sessions").doc(s.id).onSnapshot(d=>{if(d.exists&&d.data().checkinOpen===false&&s.checkinOpen!==false)studentView()},()=>{}));
+    if(r&&r.via==="code"&&!r.exitTime&&!r.exitManual)live.push(oc("sessions").doc(s.id).onSnapshot(d=>{if(d.exists&&!!d.data().exitOpen!==!!s.exitOpen)studentView()},()=>{}));
+    if($("verify2"))$("verify2").onclick=async()=>{
+      const el=$("verr");el.style.color="var(--muted)";el.textContent="Getting your location…";
+      try{const {q,d}=await checkLocation(el,s);await savePresence(q,d);studentView()}
+      catch(e){el.style.color="var(--a)";el.textContent=e.message}
+    };
+    if($("scan"))$("scan").onclick=()=>openScan(text=>{
+      const parts=text.split(":");
+      if(parts[1]!==s.id){$("merr").style.color="var(--a)";$("merr").textContent="That QR code is for a different class.";return}
+      submit(parts[2],$("merr"));
+    });
+    if($("mark"))$("mark").onclick=()=>{const v=$("cin").value.replace(/\D/g,"");if(v.length!==6){$("merr").style.color="var(--a)";$("merr").textContent="Enter the 6-digit code.";return}submit(v,$("merr"))};
+  }catch(e){$("main").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'}
+}
+
+/* ---------- live camera photo (student check-in) ---------- */
+let camStream=null;
+function stopCam(){if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null}const c=$("camera");if(c)c.classList.add("hidden")}
+$("camcancel").onclick=stopCam;
+$("pvclose").onclick=()=>$("photoview").classList.add("hidden");
+function camButtons(mode){   /* live: Take photo | wait: nothing | review: Retake + Use | bad: Retake only */
+  $("camshot").classList.toggle("hidden",mode!=="live");
+  $("camretake").classList.toggle("hidden",mode!=="review"&&mode!=="bad");
+  $("camuse").classList.toggle("hidden",mode!=="review");
+}
+/* Opens the front camera. After the shot it reads a fresh GPS fix, checks the distance, prints name, time and location on the picture
+   and hands the finished JPEG to onUse. The browser camera is the only source, so there is no way to pick a file. */
+async function openCamera(s,who,onUse){
+  const v=$("camvid"),pv=$("camprev"),err=$("camerr");
+  let shot=null;
+  const goLive=()=>{shot=null;err.textContent="";pv.classList.add("hidden");v.classList.remove("hidden");camButtons("live");$("camnote").textContent="Take a live photo of yourself in the classroom. Photos cannot be uploaded from the gallery."};
+  $("camera").classList.remove("hidden");goLive();
+  try{
+    camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:960},height:{ideal:1280}},audio:false});
+    v.srcObject=camStream;await v.play();
+  }catch(e){stopCam();alert("Could not open the camera. Allow camera access for this site and try again. Photos cannot be uploaded from the gallery.");return}
+  $("camretake").onclick=goLive;
+  $("camshot").onclick=async()=>{
+    if(!v.videoWidth)return;
+    const when=Date.now(),W=Math.min(480,v.videoWidth),H=Math.round(v.videoHeight*W/v.videoWidth);
+    const cv=document.createElement("canvas");cv.width=W;cv.height=H;
+    const cx=cv.getContext("2d");cx.drawImage(v,0,0,W,H);
+    pv.src=cv.toDataURL("image/jpeg",.6);pv.classList.remove("hidden");v.classList.add("hidden");   /* freeze the frame */
+    camButtons("wait");err.style.color="#d1d5db";err.textContent="Getting your location…";
+    try{
+      const q=await here(a=>{err.textContent="Improving location accuracy… now within "+Math.round(a)+" m"});
+      if(q.coords.accuracy>100)throw new Error("Your location is only accurate to "+Math.round(q.coords.accuracy)+" m. Go near a window, turn on high-accuracy GPS and retake.");
+      const d=dist(s.lat,s.lng,q.coords.latitude,q.coords.longitude);
+      if(d>s.radius)throw new Error("You are "+fmt(d)+" from the class location, more than the allowed "+s.radius+" m. Move closer and retake.");
+      const flag=locationFlags(q),lines=[who+(s.class?" · class "+s.class:""),new Date(when).toLocaleString(),q.coords.latitude.toFixed(5)+", "+q.coords.longitude.toFixed(5)+" (±"+Math.round(q.coords.accuracy)+" m) · "+Math.round(d)+" m from class"];
+      const fs=Math.max(11,Math.round(W/34)),lh=Math.round(fs*1.35),bh=lines.length*lh+10;
+      cx.fillStyle="rgba(0,0,0,.6)";cx.fillRect(0,H-bh,W,bh);
+      cx.fillStyle="#fff";cx.font=fs+"px system-ui,sans-serif";cx.textBaseline="top";
+      lines.forEach((t,i)=>cx.fillText(t,8,H-bh+6+i*lh,W-16));
+      const img=cv.toDataURL("image/jpeg",.6);
+      shot={img,q,d,flag,time:when};pv.src=img;
+      err.textContent="";$("camnote").textContent="Check the photo. Your face must be visible. The time and location are printed on it.";camButtons("review");
+    }catch(e){err.style.color="#fca5a5";err.textContent=e.message;camButtons("bad")}
+  };
+  $("camuse").onclick=()=>{const o=shot;if(!o)return;stopCam();onUse(o)};
+}
+/* teacher or admin: look at one student's check-in photo */
+async function showPhoto(sid,uid,name){
+  try{
+    const d=await oc("photos").doc(sid+"_"+uid).get();
+    if(!d.exists||!okImg(d.data().img)){alert("No photo found for "+name+".");return}
+    const p=d.data();
+    $("pvimg").src=p.img;
+    $("pvcap").textContent=name+" · "+new Date(p.time).toLocaleString()+" · "+Number(p.lat).toFixed(5)+", "+Number(p.lng).toFixed(5)+" · "+p.distance+" m from class";
+    $("photoview").classList.remove("hidden");
+  }catch(e){alert("Could not open the photo: "+(e.code==="permission-denied"?"publish the latest firestore.rules.":e.message))}
+}
+
+/* ---------- QR scanner ---------- */
+let stream=null,scanTimer=null;
+function stopScan(){clearInterval(scanTimer);scanTimer=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}$("scanner").classList.add("hidden")}
+$("scancancel").onclick=stopScan;
+const loadJsQR=()=>new Promise((ok,no)=>{if(window.jsQR)return ok();const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";s.onload=ok;s.onerror=()=>no(new Error("QR reader failed to load"));document.head.appendChild(s)});
+async function openScan(onCode){
+  $("scanner").classList.remove("hidden");
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"},audio:false});
+    const v=$("vid");v.srcObject=stream;await v.play();
+    let det=null;
+    if("BarcodeDetector" in window)det=new BarcodeDetector({formats:["qr_code"]});else await loadJsQR();
+    const cv=document.createElement("canvas"),cx=cv.getContext("2d",{willReadFrequently:true});
+    scanTimer=setInterval(async()=>{
+      if(v.readyState<2)return;let text=null;
+      try{
+        if(det){const r=await det.detect(v);if(r.length)text=r[0].rawValue}
+        else{cv.width=v.videoWidth;cv.height=v.videoHeight;cx.drawImage(v,0,0);const im=cx.getImageData(0,0,cv.width,cv.height),q=jsQR(im.data,im.width,im.height);if(q)text=q.data}
+      }catch(e){}
+      if(text&&/^RC1:[A-Za-z0-9]{10,40}:\d{6}$/.test(text)){stopScan();onCode(text)}
+    },300);
+  }catch(e){stopScan();alert("Could not open the camera. Allow camera access for this site, or type the code instead.")}
+}
+</script>
+</body>
+</html>
